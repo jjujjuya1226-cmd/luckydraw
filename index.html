@@ -1,499 +1,524 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>유교전 럭키드로우</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    
-    <script>
-        // 기본 데이터 설정
-        const DEFAULT_ITEMS = [
-            { id: 1, name: "튼튼영어 베이비리그", stock: 5, color: "#fff4d1", days: ["목", "금", "토", "일"] },
-            { id: 2, name: "그레이트북스 세트", stock: 10, color: "#ffebad", days: ["토", "일"] },
-            { id: 3, name: "아람 전집", stock: 8, color: "#ffe18a", days: ["목", "금"] },
-            { id: 4, name: "키즈에이원 세트", stock: 15, color: "#ffd866", days: ["목", "토"] },
-            { id: 5, name: "매직큐브 큐블로", stock: 20, color: "#ffcf42", days: ["금", "일"] },
-            { id: 6, name: "동아제약 미니막스", stock: 50, color: "#ffc51a", days: ["목", "금", "토", "일"] },
-            { id: 7, name: "참가상", stock: 2000, color: "#f3f4f6", days: ["목", "금", "토", "일"] }
-        ];
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>유교전 현장 추첨 시스템</title>
+   <script src="https://cdn.tailwindcss.com"></script>
+   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+   
+   <script>
+       // 기본 데이터 (로직용)
+       const DEFAULT_ITEMS = [
+           { id: 1, name: "튼튼영어 베이비리그", stock: 5, days: ["목", "금", "토", "일"] },
+           { id: 2, name: "그레이트북스 세트", stock: 10, days: ["토", "일"] },
+           { id: 3, name: "아람 전집", stock: 8, days: ["목", "금"] },
+           { id: 4, name: "키즈에이원 세트", stock: 15, days: ["목", "토"] },
+           { id: 5, name: "매직큐브 큐블로", stock: 20, days: ["금", "일"] },
+           { id: 6, name: "동아제약 미니막스", stock: 50, days: ["목", "금", "토", "일"] },
+           { id: 7, name: "다음 기회에", stock: 9999, days: ["목", "금", "토", "일"] }
+       ];
 
-        window.items = DEFAULT_ITEMS;
-        window.currentDay = "목";
-        window.isFirebaseReady = false; 
-        let isSpinning = false;
-        let hasParticipated = localStorage.getItem('lucky_draw_participated') === 'true';
-    </script>
+       // 디자인용 고정 룰렛 컬러 (사용자가 보는 화면은 항상 이 8개 색상으로 고정)
+       const WHEEL_DESIGN_COLORS = ["#FFB800", "#FFD600", "#FFE082", "#FFF176", "#FFB800", "#FFD600", "#FFE082", "#FFF176"];
 
-    <!-- 실시간 데이터 동기화 엔진 -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+       window.items = DEFAULT_ITEMS;
+       window.currentDay = "목";
+       window.isFirebaseReady = false;
+       let isSpinning = false;
+       let currentRotation = 0; 
+   </script>
 
-        // 외부 배포를 위한 설정값 처리
-        let firebaseConfig;
-        try {
-            // Canvas 환경인지 외부 환경인지 체크
-            if (typeof __firebase_config !== 'undefined') {
-                firebaseConfig = JSON.parse(__firebase_config);
-            } else {
-                // [중요] GitHub 배포 시 아래 주석을 풀고 본인의 Firebase 설정값을 넣어야 합니다.
-                /*
-                firebaseConfig = {
-                    apiKey: "YOUR_API_KEY",
-                    authDomain: "YOUR_PROJECT.firebaseapp.com",
-                    projectId: "YOUR_PROJECT_ID",
-                    storageBucket: "YOUR_PROJECT.appspot.com",
-                    messagingSenderId: "YOUR_SENDER_ID",
-                    appId: "YOUR_APP_ID"
-                };
-                */
-                // 설정값이 없을 경우를 위한 방어 코드
-                throw new Error("Firebase 설정값이 없습니다.");
-            }
-        } catch (e) {
-            console.error("Firebase 초기화 실패:", e);
-            document.getElementById('spin-button-text').innerText = "설정 오류 (관리자 문의)";
-        }
+   <script type="module">
+       import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+       import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+       import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        if (firebaseConfig) {
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            const db = getFirestore(app);
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'lucky-draw-v1';
+       let firebaseConfig = null;
+       if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+           firebaseConfig = JSON.parse(__firebase_config);
+       }
 
-            window.db = db;
-            window.appId = appId;
-            window.auth = auth;
-            window.fsDoc = doc;
-            window.fsSetDoc = setDoc;
-            window.fsUpdateDoc = updateDoc;
+       if (firebaseConfig) {
+           const app = initializeApp(firebaseConfig);
+           const auth = getAuth(app);
+           const db = getFirestore(app);
+           const appId = typeof __app_id !== 'undefined' ? __app_id : 'educare-pc-station-v2';
 
-            const initAuth = async () => {
-                try {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (error) {
-                    console.error("인증 오류:", error);
-                    document.getElementById('spin-button-text').innerText = "인증 오류";
-                }
-            };
+           window.db = db;
+           window.appId = appId;
+           window.fsDoc = doc;
+           window.fsUpdateDoc = updateDoc;
+           window.fsSetDoc = setDoc;
 
-            initAuth();
+           const initAuth = async () => {
+               if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                   await signInWithCustomToken(auth, __initial_auth_token);
+               } else {
+                   await signInAnonymously(auth);
+               }
+           };
+           initAuth();
 
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    window.currentUser = user;
-                    window.isFirebaseReady = true; 
-                    
-                    const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data');
-                    
-                    onSnapshot(settingsDocRef, (docSnap) => {
-                        if (docSnap.exists()) {
-                            const data = docSnap.data();
-                            window.items = data.items || DEFAULT_ITEMS;
-                            window.currentDay = data.currentDay || "목";
-                        } else {
-                            setDoc(settingsDocRef, { items: DEFAULT_ITEMS, currentDay: "목" });
-                        }
-                        renderWheel();
-                        updateAdminUI();
-                        checkParticipation();
-                    }, (error) => {
-                        console.error("동기화 오류:", error);
-                        // 권한 오류(Firestore rules) 발생 시 안내
-                        if (error.code === 'permission-denied') {
-                            document.getElementById('spin-button-text').innerText = "DB 접근 권한 없음";
-                        }
-                    });
-                }
-            });
-        }
-    </script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
-        
-        body {
-            font-family: 'Noto Sans KR', sans-serif;
-            background-color: #f0f2f5;
-            color: #333;
-            overflow-x: hidden;
-            -webkit-overflow-scrolling: touch;
-        }
+           onAuthStateChanged(auth, (user) => {
+               if (user) {
+                   window.isFirebaseReady = true;
+                   const docRef = doc(db, 'artifacts', appId, 'public', 'data');
+                   onSnapshot(docRef, (snap) => {
+                       if (snap.exists()) {
+                           const data = snap.data();
+                           window.items = data.items || DEFAULT_ITEMS;
+                           window.currentDay = data.currentDay || "목";
+                       } else {
+                           setDoc(docRef, { items: DEFAULT_ITEMS, currentDay: "목" });
+                       }
+                       renderAdminList();
+                   });
+               }
+           });
+       } else {
+           window.onload = () => { renderAdminList(); };
+       }
+   </script>
 
-        .main-yellow { background-color: #FFB800; }
-        
-        #wheel-outer-wrapper {
-            padding-top: 10px;
-            padding-bottom: 10px;
-            position: relative;
-            background: radial-gradient(circle at center, rgba(255, 184, 0, 0.08) 0%, transparent 70%);
-            border-radius: 50%;
-        }
+   <style>
+       @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+       
+       :root {
+           --main-yellow: #FFB800;
+           --bg-soft: #FEFDF5;
+           --text-black: #111111;
+       }
 
-        #wheel-container {
-            position: relative;
-            width: 70vw; 
-            height: 70vw;
-            max-width: 280px;
-            max-height: 280px;
-            margin: 0 auto;
-            filter: drop-shadow(0 10px 25px rgba(0,0,0,0.15));
-            z-index: 10;
-        }
+       body {
+           font-family: 'Pretendard', sans-serif;
+           background-color: var(--bg-soft);
+           color: var(--text-black);
+           margin: 0;
+           padding: 0;
+           overflow: hidden;
+           letter-spacing: -0.04em;
+           height: 100vh;
+           width: 100vw;
+       }
 
-        #wheel {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            border: 6px solid #222; 
-            position: relative;
-            overflow: hidden;
-            transition: transform 5s cubic-bezier(0.15, 0, 0.15, 1);
-            background: white;
-            z-index: 10;
-        }
+       .pc-layout {
+           height: 100vh;
+           display: flex;
+           flex-direction: column;
+           align-items: center;
+           justify-content: space-between;
+           padding: 5vh 0;
+           position: relative;
+           background-image: radial-gradient(rgba(255,184,0,0.07) 2.5px, transparent 2.5px);
+           background-size: 60px 60px;
+       }
 
-        .segment {
-            position: absolute;
-            width: 50%;
-            height: 50%;
-            transform-origin: 100% 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-sizing: border-box;
-            border: 0.5px solid rgba(0,0,0,0.05);
-        }
+       .top-header {
+           text-align: center;
+           z-index: 10;
+       }
 
-        .needle {
-            position: absolute;
-            top: -10px; 
-            left: 50%;
-            transform: translateX(-50%);
-            width: 34px;
-            height: 42px;
-            z-index: 50;
-            filter: drop-shadow(0 3px 5px rgba(0,0,0,0.2));
-        }
+       .event-badge {
+           display: inline-block;
+           background-color: var(--text-black);
+           color: white;
+           padding: 1.2vh 3.5vw;
+           border-radius: 100px;
+           font-size: min(1.8vw, 24px);
+           font-weight: 800;
+           letter-spacing: 0.1em;
+           margin-bottom: 2vh;
+           box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+       }
 
-        .modal {
+       .top-header h1 {
+           font-size: min(5vw, 72px);
+           font-weight: 900;
+           line-height: 1.1;
+           margin-bottom: 2vh;
+           color: #111;
+           word-break: keep-all;
+       }
+
+       .sub-info {
+           font-size: min(1.8vw, 26px);
+           font-weight: 800;
+           color: var(--main-yellow);
+           background: white;
+           padding: 1vh 3vw;
+           border-radius: 15px;
+           display: inline-block;
+           box-shadow: 0 5px 20px rgba(0,0,0,0.06);
+           border: 2px solid rgba(255, 184, 0, 0.3);
+       }
+
+       #wheel-container {
+           position: relative;
+           width: min(60vh, 85vw); 
+           height: min(60vh, 85vw);
+           aspect-ratio: 1 / 1; 
+           filter: drop-shadow(0 40px 100px rgba(0,0,0,0.18));
+           margin: 2vh 0;
+       }
+
+       #wheel {
+           width: 100%;
+           height: 100%;
+           border-radius: 50%;
+           border: min(2vh, 20px) solid var(--text-black);
+           position: relative;
+           overflow: hidden;
+           transition: transform 2s cubic-bezier(0.15, 0, 0.05, 1);
+           background: white;
+       }
+
+       .segment {
+           position: absolute;
+           width: 50%;
+           height: 50%;
+           transform-origin: 100% 100%;
+           border: 0.5px solid rgba(255,255,255,0.2);
+       }
+
+       .needle {
+           position: absolute;
+           top: -4vh;
+           left: 50%;
+           transform: translateX(-50%);
+           width: 6vh;
+           height: 8vh;
+           z-index: 100;
+           filter: drop-shadow(0 8px 15px rgba(0,0,0,0.3));
+       }
+
+       .center-cap {
+           position: absolute;
+           top: 50%;
+           left: 50%;
+           transform: translate(-50%, -50%);
+           width: 8vh;
+           height: 8vh;
+           background: white;
+           border: min(1.5vh, 16px) solid var(--text-black);
+           border-radius: 50%;
+           z-index: 50;
+           display: flex;
+           align-items: center;
+           justify-content: center;
+           box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+       }
+
+       .spin-btn-container {
+           text-align: center;
+           z-index: 10;
+       }
+
+       .spin-btn {
+           background-color: var(--main-yellow);
+           color: var(--text-black);
+           font-weight: 900;
+           font-size: min(2.8vw, 40px);
+           padding: 2.5vh 8vw;
+           border-radius: 120px;
+           transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+           box-shadow: 0 20px 50px rgba(255, 184, 0, 0.45);
+           cursor: pointer;
+           border: none;
+       }
+
+       .spin-btn:hover:not(:disabled) {
+           transform: translateY(-8px) scale(1.03);
+           filter: brightness(1.05);
+       }
+
+       .instruction-text {
+           margin-top: 2.5vh;
+           color: #999;
+           font-weight: 800;
+           font-size: min(1.5vw, 22px);
+       }
+
+       .result-overlay {
             display: none;
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85);
-            backdrop-filter: blur(8px);
-            z-index: 9999;
+            background: rgba(255, 184, 0, 0.99);
+            z-index: 10000;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
+            text-align: center;
+       }
+       .result-overlay.active { display: flex; animation: winShow 0.5s cubic-bezier(0.19, 1, 0.22, 1); }
 
-        .modal.active { display: flex; opacity: 1; }
-        .modal-content {
-            transform: scale(0.9);
-            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-            width: 90%;
-            max-width: 400px;
-        }
-        .modal.active .modal-content { transform: scale(1); }
+       @keyframes winShow {
+           from { opacity: 0; transform: scale(0.7); }
+           to { opacity: 1; transform: scale(1); }
+       }
 
-        .admin-day-btn {
-            flex: 1;
-            padding: 8px;
-            border-radius: 8px;
-            font-weight: 900;
-            font-size: 12px;
-            transition: all 0.2s;
-            border: 2px solid #eee;
-            background: white;
-            color: #ccc;
-        }
-        .admin-day-btn.active {
-            border-color: #FFB800;
-            background: #FFB800;
-            color: white;
-        }
-
-        .main-card {
-            width: 100%;
-            max-width: 440px;
-            background: white;
-            border-radius: 2rem;
-            overflow: hidden;
-            border: 6px solid #FFB800; 
-            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.15);
-        }
-    </style>
+       .admin-trigger {
+           position: absolute;
+           top: 30px;
+           right: 30px;
+           color: rgba(0,0,0,0.25);
+           background: rgba(0,0,0,0.04);
+           width: 50px;
+           height: 50px;
+           display: flex;
+           align-items: center;
+           justify-content: center;
+           border-radius: 50%;
+           font-size: 28px;
+           cursor: pointer;
+           z-index: 100;
+           transition: all 0.3s ease;
+       }
+       .admin-trigger:hover {
+           color: rgba(0,0,0,0.7);
+           background: rgba(0,0,0,0.1);
+           transform: rotate(45deg);
+       }
+       
+       .admin-box {
+           background: white;
+           width: min(90%, 750px);
+           max-height: 90vh;
+           border-radius: 40px;
+           padding: 40px;
+           overflow-y: auto;
+       }
+       .modal {
+           display: none;
+           position: fixed;
+           top: 0; left: 0; width: 100%; height: 100%;
+           background: rgba(0, 0, 0, 0.85);
+           backdrop-filter: blur(15px);
+           z-index: 9999;
+           justify-content: center;
+           align-items: center;
+       }
+       .modal.active { display: flex; }
+   </style>
 </head>
-<body class="p-4 flex flex-col items-center justify-center min-h-screen">
+<body>
 
-    <div class="main-card">
-        <div class="main-yellow pt-6 pb-5 px-5 text-center relative">
-            <h1 class="text-white text-xl sm:text-2xl font-black leading-tight drop-shadow-md">
-                서울국제유아교육전<br>& 키즈페어
-            </h1>
-            <div class="inline-block mt-2 px-5 py-1 bg-black/10 rounded-full border border-white/10">
-                <p id="display-day-text" class="text-white text-[10px] font-black tracking-widest uppercase">LUCKY DRAW EVENT</p>
-            </div>
-        </div>
+   <div class="pc-layout">
+       <div onclick="openAdmin()" class="admin-trigger" title="설정">
+           <i class="fas fa-cog"></i>
+       </div>
 
-        <div class="p-6 text-center bg-white relative">
-            <div class="mb-4">
-                <p class="text-[#FFB800] text-[10px] font-black mb-0.5 tracking-wider uppercase">사전등록자 한정 혜택 (1인 1회)</p>
-                <h2 class="text-lg sm:text-xl font-black text-gray-800 tracking-tighter">행운의 룰렛을 돌려보세요!</h2>
-            </div>
+       <div class="top-header">
+           <!-- 수정됨: 위치 변경 및 문구 대체 -->
+           <div class="event-badge">서울국제유아교육전&키즈페어</div>
+           <h1>행운 가득! 럭키드로우 이벤트</h1>
+           <p class="sub-info">사전등록자 한정 혜택 (1인 1회 참여)</p>
+       </div>
 
-            <div id="wheel-outer-wrapper">
-                <div id="wheel-container">
-                    <div id="needle" class="needle">
-                        <svg viewBox="0 0 40 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M20 50L40 0H0L20 50Z" fill="#FF4D4D"/>
-                        </svg>
-                    </div>
-                    <div id="wheel" style="transform: rotate(0deg);"></div>
-                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-full border-[4px] border-[#222] z-30 shadow-md"></div>
-                </div>
-            </div>
+       <div id="wheel-container">
+           <div class="needle">
+               <svg viewBox="0 0 40 55" fill="var(--text-black)">
+                   <path d="M20 55L40 0H0L20 55Z"/>
+               </svg>
+           </div>
+           <div id="wheel">
+               <script>
+                   const wheel = document.getElementById('wheel');
+                   const segCount = 8;
+                   const step = 360 / segCount;
+                   WHEEL_DESIGN_COLORS.forEach((color, i) => {
+                       const seg = document.createElement('div');
+                       seg.className = 'segment';
+                       seg.style.backgroundColor = color;
+                       seg.style.width = '50%';
+                       seg.style.height = '50%';
+                       seg.style.position = 'absolute';
+                       seg.style.transformOrigin = '100% 100%';
+                       seg.style.transform = `rotate(${step * i}deg) skewY(${90 - step}deg)`;
+                       wheel.appendChild(seg);
+                   });
+               </script>
+           </div>
+           <div class="center-cap">
+               <div class="w-4 h-4 bg-black rounded-full"></div>
+           </div>
+       </div>
 
-            <button id="spin-button" onclick="spin()" disabled class="w-full mt-8 main-yellow disabled:bg-gray-300 text-white text-lg font-black py-5 rounded-2xl shadow-[0_6px_0_#D99C00] active:shadow-none active:translate-y-[6px] transition-all">
-                <span id="spin-button-text">시스템 연결 중...</span>
-            </button>
+       <div class="spin-btn-container">
+           <button id="spin-btn" onclick="spin()" class="spin-btn">경품 추첨 START!</button>
+           <div class="instruction-text">버튼을 눌러서 추첨을 진행해 주세요.</div>
+       </div>
 
-            <div class="text-left bg-gray-50 p-5 rounded-2xl border border-gray-100 mt-6">
-                <div class="flex items-center mb-3">
-                    <span class="text-lg mr-2">🎁</span>
-                    <h3 class="font-black text-gray-800 text-sm">경품 리스트</h3>
-                </div>
-                <div id="inventory-list" class="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-2"></div>
-            </div>
-        </div>
-        
-        <div class="bg-gray-100/50 py-3 px-6 flex justify-between items-center border-t border-gray-100">
-            <p class="text-[9px] text-gray-400 font-bold tracking-wider">© (주)세계전람</p>
-            <button onclick="openAdmin()" class="text-gray-200 hover:text-[#FFB800]"><i class="fas fa-cog text-xs"></i></button>
-        </div>
-    </div>
+       <div class="footer-info text-gray-300 font-bold">
+           <p>(주)세계전람</p>
+       </div>
+   </div>
 
-    <!-- 관리자 로그인 모달 -->
-    <div id="admin-login-modal" class="modal">
-        <div class="modal-content bg-white p-8 rounded-3xl shadow-2xl border-4 border-[#FFB800]">
-            <h3 class="font-black text-center mb-4">관리자 인증</h3>
-            <input type="password" id="admin-pass" pattern="\d*" inputmode="numeric" class="w-full border-2 p-3 rounded-xl mb-4 text-center tracking-[0.5em]" placeholder="****">
-            <button onclick="checkAdminPass()" class="w-full main-yellow text-white py-3 rounded-xl font-black">확인</button>
-        </div>
-    </div>
+   <div id="result-overlay" class="result-overlay" onclick="closeResult()">
+       <div class="text-[min(12vh,140px)] mb-2 animate-bounce">🎊</div>
+       <h2 class="text-[min(6vh,72px)] font-black text-black mb-6">당첨을 축하드립니다!</h2>
+       <div class="bg-white px-24 py-14 rounded-[70px] shadow-2xl mb-12 transform scale-105 border-[12px] border-black max-w-[85vw]">
+           <p id="win-item-name" class="text-[min(9vh,100px)] font-black text-black leading-tight break-keep"></p>
+       </div>
+       <p class="text-[min(3vh,32px)] font-bold text-black opacity-60">스페이스바 / 엔터 또는 화면을 클릭하면 닫힙니다.</p>
+   </div>
 
-    <!-- 관리자 설정 모달 -->
-    <div id="admin-settings-modal" class="modal">
-        <div class="modal-content bg-white p-6 rounded-3xl w-full max-h-[85vh] overflow-y-auto">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-black">전체 설정 변경</h3>
-                <button onclick="closeModal('admin-settings-modal')"><i class="fas fa-times-circle text-gray-300 text-xl"></i></button>
-            </div>
-            <div class="flex gap-1 mb-6">
-                <button onclick="changeGlobalDay('목')" id="admin-day-목" class="admin-day-btn">목</button>
-                <button onclick="changeGlobalDay('금')" id="admin-day-금" class="admin-day-btn">금</button>
-                <button onclick="changeGlobalDay('토')" id="admin-day-토" class="admin-day-btn">토</button>
-                <button onclick="changeGlobalDay('일')" id="admin-day-일" class="admin-day-btn">일</button>
-            </div>
-            <div id="admin-item-list" class="space-y-3"></div>
-            <div class="mt-6 flex gap-2 sticky bottom-0 bg-white py-3 border-t">
-                <button onclick="addItem()" class="flex-1 bg-gray-100 py-3 rounded-lg font-black text-xs">항목 추가</button>
-                <button id="admin-save-btn" onclick="saveData()" class="flex-1 main-yellow text-white py-3 rounded-lg font-black text-xs shadow-md">저장 (전체 기기 반영)</button>
-            </div>
-            <button onclick="resetParticipation()" class="w-full mt-4 text-red-400 text-[10px] font-bold">이 기기 참여 기록 초기화</button>
-        </div>
-    </div>
+   <div id="admin-login-modal" class="modal">
+       <div class="bg-white p-12 rounded-[40px] w-[400px] text-center shadow-2xl">
+           <h3 class="font-black text-2xl mb-8">관리자 인증</h3>
+           <input type="password" id="admin-pass" class="w-full bg-gray-50 border-2 border-gray-100 p-5 rounded-2xl mb-6 text-center font-bold text-2xl outline-none focus:border-[var(--main-yellow)]" placeholder="PIN CODE">
+           <button onclick="checkAdminPass()" class="w-full bg-black text-white py-5 rounded-2xl font-black text-xl">확인</button>
+           <button onclick="closeModal('admin-login-modal')" class="w-full mt-4 text-gray-400 font-bold">닫기</button>
+       </div>
+   </div>
 
-    <!-- 당첨 결과 모달 -->
-    <div id="win-modal" class="modal">
-        <div class="modal-content bg-white p-8 rounded-[3rem] text-center shadow-2xl border-[8px] border-[#FFB800]">
-            <div class="text-5xl mb-4 animate-bounce">✨</div>
-            <h2 class="text-xl font-black mb-1">축하합니다!</h2>
-            <div class="bg-yellow-50 py-6 rounded-2xl border-2 border-dashed border-[#FFB800] my-4">
-                <p id="win-item-name" class="text-lg font-black text-[#E6A600] px-4"></p>
-            </div>
-            <button onclick="closeModal('win-modal')" class="w-full bg-black text-white py-4 rounded-2xl font-black text-sm">확인</button>
-        </div>
-    </div>
+   <div id="admin-settings-modal" class="modal">
+       <div class="admin-box">
+           <div class="flex justify-between items-center mb-8">
+               <h3 class="font-black text-3xl text-black">현장 운영 설정</h3>
+               <button onclick="closeModal('admin-settings-modal')"><i class="fas fa-times text-2xl text-gray-400"></i></button>
+           </div>
+           <p class="mb-6 text-gray-500 font-bold">* 룰렛 디자인은 8등분으로 고정되어 있으며, 추첨 로직만 아래 리스트를 따릅니다.</p>
+           <div class="mb-8">
+               <label class="block text-xs font-black text-gray-400 mb-3 uppercase">현재 운영 요일 설정</label>
+               <div class="flex gap-2">
+                   <div onclick="changeGlobalDay('목')" id="day-목" class="day-btn text-center p-4 rounded-xl font-bold cursor-pointer flex-1 bg-gray-100">목요일</div>
+                   <div onclick="changeGlobalDay('금')" id="day-금" class="day-btn text-center p-4 rounded-xl font-bold cursor-pointer flex-1 bg-gray-100">금요일</div>
+                   <div onclick="changeGlobalDay('토')" id="day-토" class="day-btn text-center p-4 rounded-xl font-bold cursor-pointer flex-1 bg-gray-100">토요일</div>
+                   <div onclick="changeGlobalDay('일')" id="day-일" class="day-btn text-center p-4 rounded-xl font-bold cursor-pointer flex-1 bg-gray-100">일요일</div>
+               </div>
+           </div>
+           <div id="admin-item-list" class="space-y-4 mb-6"></div>
+           <button onclick="addItem()" class="w-full bg-gray-50 py-4 mb-4 rounded-2xl font-black text-gray-400 border border-dashed border-gray-200">+ 새 경품 추가</button>
+           <button onclick="saveData()" class="w-full bg-[var(--main-yellow)] py-5 rounded-3xl font-black text-2xl shadow-xl">설정 저장 후 적용</button>
+       </div>
+   </div>
 
-    <script>
-        function checkParticipation() {
-            const btn = document.getElementById('spin-button');
-            const btnText = document.getElementById('spin-button-text');
-            
-            if (!window.isFirebaseReady) {
-                // 이 텍스트가 안바뀐다면 위 script type="module" 블록의 에러 로그를 확인해야 함
-                return;
-            }
+   <script>
+       window.addEventListener('keydown', (e) => {
+           if (e.code === 'Space' || e.code === 'Enter') {
+               if (document.activeElement.tagName === 'INPUT') return;
+               const overlay = document.getElementById('result-overlay');
+               if (overlay.classList.contains('active')) {
+                   closeResult();
+                   e.preventDefault();
+                   return;
+               }
+               if (!isSpinning && !document.querySelector('.modal.active')) {
+                   spin();
+                   e.preventDefault();
+               }
+           }
+       });
 
-            if (hasParticipated) {
-                btn.disabled = true;
-                btnText.innerText = "이미 참여 완료되었습니다";
-            } else {
-                btn.disabled = false;
-                btnText.innerText = "추첨 START!";
-            }
-        }
+       function renderAdminList() {
+           document.querySelectorAll('.day-btn').forEach(btn => {
+               btn.classList.toggle('active', btn.id === `day-${window.currentDay}`);
+               btn.style.backgroundColor = btn.id === `day-${window.currentDay}` ? 'var(--main-yellow)' : '#F3F4F6';
+           });
 
-        function renderWheel() {
-            const wheel = document.getElementById('wheel');
-            if (!wheel) return;
-            wheel.innerHTML = '';
-            
-            const total = window.items.length;
-            if (total === 0) return;
-            
-            const step = 360 / total;
-            window.items.forEach((item, index) => {
-                const seg = document.createElement('div');
-                seg.className = 'segment';
-                seg.style.backgroundColor = item.color;
-                seg.style.transform = `rotate(${step * index}deg) skewY(${90 - step}deg)`;
-                wheel.appendChild(seg);
-            });
+           const list = document.getElementById('admin-item-list');
+           list.innerHTML = window.items.map((item, i) => `
+               <div class="p-6 bg-gray-50 rounded-3xl border border-gray-100">
+                   <div class="flex gap-4 mb-4">
+                       <input type="text" value="${item.name}" oninput="window.items[${i}].name=this.value" class="flex-1 bg-white border border-gray-200 p-3 rounded-xl font-bold text-lg outline-none" placeholder="경품명">
+                       <input type="number" value="${item.stock}" oninput="window.items[${i}].stock=parseInt(this.value)" class="w-24 bg-white border border-gray-200 p-3 rounded-xl font-bold text-lg text-center outline-none" placeholder="재고">
+                       <button onclick="removeItem(${i})" class="text-gray-300 hover:text-red-500 px-2"><i class="fas fa-trash"></i></button>
+                   </div>
+                   <div class="flex gap-2">
+                       ${['목','금','토','일'].map(d => `
+                           <button onclick="toggleItemDay(${i}, '${d}')" class="flex-1 py-2 rounded-lg font-bold text-xs border transition-all ${item.days.includes(d) ? 'bg-black text-white border-black' : 'bg-white text-gray-300 border-gray-100'}">${d}</button>
+                       `).join('')}
+                   </div>
+               </div>
+           `).join('');
+       }
 
-            document.getElementById('inventory-list').innerHTML = window.items.map(item => `
-                <div class="flex justify-between items-center py-3 px-4 bg-white rounded-lg border border-gray-100">
-                    <span class="text-[12px] font-bold text-gray-700">${item.name}</span>
-                </div>
-            `).join('');
-        }
+       async function spin() {
+           if (isSpinning) return;
+           const activeItems = window.items.filter(it => it.stock > 0 && it.days.includes(window.currentDay));
+           if (activeItems.length === 0) { 
+               alert(`[${window.currentDay}요일] 준비된 경품 재고가 모두 소진되었습니다.`); 
+               return; 
+           }
+           isSpinning = true;
+           const spinBtn = document.getElementById('spin-btn');
+           spinBtn.disabled = true;
+           spinBtn.style.opacity = '0.5';
+           const totalStock = activeItems.reduce((acc, it) => acc + it.stock, 0);
+           let rand = Math.floor(Math.random() * totalStock);
+           let winner = activeItems[0];
+           let acc = 0;
+           for (let it of activeItems) {
+               acc += it.stock;
+               if (rand < acc) { winner = it; break; }
+           }
+           const extraSpins = 15; 
+           const randomStopAngle = Math.floor(Math.random() * 360); 
+           currentRotation += (extraSpins * 360) + randomStopAngle;
+           const wheel = document.getElementById('wheel');
+           wheel.style.transition = 'transform 2s cubic-bezier(0.15, 0, 0.05, 1)';
+           wheel.style.transform = `rotate(${currentRotation}deg)`;
+           setTimeout(async () => {
+               confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ['#FFB800', '#000000', '#FFFFFF'] });
+               document.getElementById('win-item-name').innerText = winner.name;
+               document.getElementById('result-overlay').classList.add('active');
+               const updatedItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
+               if (window.isFirebaseReady) {
+                   const ref = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
+                   await window.fsUpdateDoc(ref, { items: updatedItems, currentDay: window.currentDay });
+               } else {
+                   window.items = updatedItems;
+                   renderAdminList();
+               }
+               isSpinning = false;
+               spinBtn.disabled = false;
+               spinBtn.style.opacity = '1';
+           }, 2100); 
+       }
 
-        async function spin() {
-            if (!window.isFirebaseReady) return;
-            if (isSpinning || hasParticipated || !window.items.length) return;
-            
-            const activeItems = window.items.filter(item => item.stock > 0 && item.days.includes(window.currentDay));
-            if (activeItems.length === 0) { alert('오늘 참여 가능한 경품 재고가 없습니다.'); return; }
-
-            isSpinning = true;
-            const wheel = document.getElementById('wheel');
-            const btnText = document.getElementById('spin-button-text');
-            document.getElementById('spin-button').disabled = true;
-
-            const totalStock = activeItems.reduce((s, i) => s + i.stock, 0);
-            let rand = Math.floor(Math.random() * totalStock);
-            let winner = activeItems[0];
-            let acc = 0;
-            for (let i = 0; i < activeItems.length; i++) {
-                acc += activeItems[i].stock;
-                if (rand < acc) { winner = activeItems[i]; break; }
-            }
-
-            const winnerIdx = window.items.findIndex(it => it.id === winner.id);
-            const step = 360 / window.items.length;
-            const spins = 10;
-            const rotation = (spins * 360) - (winnerIdx * step) - (step / 2);
-            
-            wheel.style.transform = `rotate(${rotation}deg)`;
-
-            setTimeout(async () => {
-                confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, zIndex: 10000 });
-                document.getElementById('win-item-name').innerText = winner.name;
-                document.getElementById('win-modal').classList.add('active');
-                
-                const newItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
-                try {
-                    const settingsDocRef = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
-                    await window.fsUpdateDoc(settingsDocRef, { items: newItems });
-                } catch (e) { console.error("재고 업데이트 실패:", e); }
-                
-                hasParticipated = true;
-                localStorage.setItem('lucky_draw_participated', 'true');
-                isSpinning = false;
-                btnText.innerText = "이미 참여 완료되었습니다";
-            }, 5200);
-        }
-
-        function openAdmin() { 
-            document.getElementById('admin-login-modal').classList.add('active'); 
-            document.getElementById('admin-pass').focus();
-        }
-
-        function checkAdminPass() {
-            if (document.getElementById('admin-pass').value === '8887') {
-                closeModal('admin-login-modal');
-                document.getElementById('admin-pass').value = '';
-                showSettings();
-            } else { alert('비밀번호 오류'); }
-        }
-
-        function showSettings() {
-            updateAdminUI();
-            const list = document.getElementById('admin-item-list');
-            list.innerHTML = window.items.map((item, i) => `
-                <div class="p-3 bg-gray-50 rounded-xl border">
-                    <input type="text" value="${item.name}" oninput="window.items[${i}].name = this.value" class="w-full p-2 mb-2 rounded border font-bold text-xs">
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-1">
-                            ${['목', '금', '토', '일'].map(d => `
-                                <button onclick="toggleDay(${i}, '${d}')" class="w-7 h-7 rounded text-[10px] font-black border ${item.days.includes(d) ? 'bg-black text-[#FFB800]' : 'bg-white text-gray-300'}">${d}</button>
-                            `).join('')}
-                        </div>
-                        <div class="flex items-center gap-1">
-                            <span class="text-[9px] font-bold text-gray-400">재고:</span>
-                            <input type="number" value="${item.stock}" oninput="window.items[${i}].stock = parseInt(this.value)" class="w-12 p-1 text-center font-black text-xs border rounded">
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-            document.getElementById('admin-settings-modal').classList.add('active');
-        }
-
-        function toggleDay(idx, day) {
-            const currentDays = window.items[idx].days;
-            if (currentDays.includes(day)) {
-                window.items[idx].days = currentDays.filter(d => d !== day);
-            } else { window.items[idx].days.push(day); }
-            showSettings();
-        }
-
-        async function changeGlobalDay(day) {
-            window.currentDay = day;
-            updateAdminUI();
-        }
-
-        function updateAdminUI() {
-            document.querySelectorAll('.admin-day-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.id === `admin-day-${window.currentDay}`);
-            });
-        }
-
-        function addItem() {
-            window.items.push({ id: Date.now(), name: "새 경품", stock: 10, color: "#f3f4f6", days: ["목", "금", "토", "일"] });
-            showSettings();
-        }
-
-        async function saveData() {
-            if (!window.isFirebaseReady) return;
-            const btn = document.getElementById('admin-save-btn');
-            btn.disabled = true;
-            try {
-                const settingsDocRef = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
-                await window.fsSetDoc(settingsDocRef, { items: window.items, currentDay: window.currentDay });
-                alert("저장되었습니다.");
-                closeModal('admin-settings-modal');
-            } catch (e) { alert("저장 실패"); } finally { btn.disabled = false; }
-        }
-
-        function resetParticipation() {
-            localStorage.removeItem('lucky_draw_participated');
-            hasParticipated = false;
-            alert('기록 초기화 완료');
-            closeModal('admin-settings-modal');
-            checkParticipation();
-        }
-
-        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-    </script>
+       function openAdmin() { document.getElementById('admin-login-modal').classList.add('active'); }
+       function checkAdminPass() {
+           if (document.getElementById('admin-pass').value === '8887') {
+               closeModal('admin-login-modal');
+               document.getElementById('admin-pass').value = '';
+               document.getElementById('admin-settings-modal').classList.add('active');
+               renderAdminList();
+           } else { alert('PIN 코드가 틀립니다.'); }
+       }
+       function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+       function closeResult() {
+           document.getElementById('result-overlay').classList.remove('active');
+           currentRotation %= 360;
+           const wheel = document.getElementById('wheel');
+           wheel.style.transition = 'none';
+           wheel.style.transform = `rotate(${currentRotation}deg)`;
+       }
+       function changeGlobalDay(d) { window.currentDay = d; renderAdminList(); }
+       function toggleItemDay(idx, d) {
+           const days = window.items[idx].days;
+           window.items[idx].days = days.includes(d) ? days.filter(x => x !== d) : [...days, d];
+           renderAdminList();
+       }
+       function addItem() {
+           window.items.push({ id: Date.now(), name: "새 경품", stock: 10, days: ["목","금","토","일"] });
+           renderAdminList();
+       }
+       function removeItem(i) {
+           if(confirm('이 항목을 삭제하시겠습니까?')) {
+               window.items.splice(i, 1);
+               renderAdminList();
+           }
+       }
+       async function saveData() {
+           if (window.isFirebaseReady) {
+               const ref = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
+               await window.fsSetDoc(ref, { items: window.items, currentDay: window.currentDay });
+               alert('저장되었습니다.');
+           } else { alert('로컬 반영 완료'); }
+           closeModal('admin-settings-modal');
+       }
+   </script>
 </body>
 </html>
