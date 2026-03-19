@@ -22,7 +22,7 @@
 
         window.items = DEFAULT_ITEMS;
         window.currentDay = "목";
-        window.isFirebaseReady = false; // 시스템 준비 상태 플래그
+        window.isFirebaseReady = false; 
         let isSpinning = false;
         let hasParticipated = localStorage.getItem('lucky_draw_participated') === 'true';
     </script>
@@ -33,56 +33,88 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        window.db = db;
-        window.appId = appId;
-        window.auth = auth;
-        window.fsDoc = doc;
-        window.fsSetDoc = setDoc;
-        window.fsUpdateDoc = updateDoc;
-
-        const initAuth = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (error) {
-                console.error("인증 오류:", error);
+        // 외부 배포를 위한 설정값 처리
+        let firebaseConfig;
+        try {
+            // Canvas 환경인지 외부 환경인지 체크
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            } else {
+                // [중요] GitHub 배포 시 아래 주석을 풀고 본인의 Firebase 설정값을 넣어야 합니다.
+                /*
+                firebaseConfig = {
+                    apiKey: "YOUR_API_KEY",
+                    authDomain: "YOUR_PROJECT.firebaseapp.com",
+                    projectId: "YOUR_PROJECT_ID",
+                    storageBucket: "YOUR_PROJECT.appspot.com",
+                    messagingSenderId: "YOUR_SENDER_ID",
+                    appId: "YOUR_APP_ID"
+                };
+                */
+                // 설정값이 없을 경우를 위한 방어 코드
+                throw new Error("Firebase 설정값이 없습니다.");
             }
-        };
+        } catch (e) {
+            console.error("Firebase 초기화 실패:", e);
+            document.getElementById('spin-button-text').innerText = "설정 오류 (관리자 문의)";
+        }
 
-        initAuth();
+        if (firebaseConfig) {
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'lucky-draw-v1';
 
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                window.currentUser = user;
-                window.isFirebaseReady = true; // 연결 완료 마킹
-                
-                const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data');
-                
-                onSnapshot(settingsDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        window.items = data.items || DEFAULT_ITEMS;
-                        window.currentDay = data.currentDay || "목";
+            window.db = db;
+            window.appId = appId;
+            window.auth = auth;
+            window.fsDoc = doc;
+            window.fsSetDoc = setDoc;
+            window.fsUpdateDoc = updateDoc;
+
+            const initAuth = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
                     } else {
-                        setDoc(settingsDocRef, { items: DEFAULT_ITEMS, currentDay: "목" });
+                        await signInAnonymously(auth);
                     }
-                    renderWheel();
-                    updateAdminUI();
-                    checkParticipation(); // 인증 완료 후 버튼 상태 갱신
-                }, (error) => {
-                    console.error("동기화 오류:", error);
-                });
-            }
-        });
+                } catch (error) {
+                    console.error("인증 오류:", error);
+                    document.getElementById('spin-button-text').innerText = "인증 오류";
+                }
+            };
+
+            initAuth();
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    window.currentUser = user;
+                    window.isFirebaseReady = true; 
+                    
+                    const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data');
+                    
+                    onSnapshot(settingsDocRef, (docSnap) => {
+                        if (docSnap.exists()) {
+                            const data = docSnap.data();
+                            window.items = data.items || DEFAULT_ITEMS;
+                            window.currentDay = data.currentDay || "목";
+                        } else {
+                            setDoc(settingsDocRef, { items: DEFAULT_ITEMS, currentDay: "목" });
+                        }
+                        renderWheel();
+                        updateAdminUI();
+                        checkParticipation();
+                    }, (error) => {
+                        console.error("동기화 오류:", error);
+                        // 권한 오류(Firestore rules) 발생 시 안내
+                        if (error.code === 'permission-denied') {
+                            document.getElementById('spin-button-text').innerText = "DB 접근 권한 없음";
+                        }
+                    });
+                }
+            });
+        }
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
@@ -250,7 +282,7 @@
         </div>
     </div>
 
-    <!-- 관리자 로그인 및 설정 모달 생략 (동일) -->
+    <!-- 관리자 로그인 모달 -->
     <div id="admin-login-modal" class="modal">
         <div class="modal-content bg-white p-8 rounded-3xl shadow-2xl border-4 border-[#FFB800]">
             <h3 class="font-black text-center mb-4">관리자 인증</h3>
@@ -259,6 +291,7 @@
         </div>
     </div>
 
+    <!-- 관리자 설정 모달 -->
     <div id="admin-settings-modal" class="modal">
         <div class="modal-content bg-white p-6 rounded-3xl w-full max-h-[85vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
@@ -280,6 +313,7 @@
         </div>
     </div>
 
+    <!-- 당첨 결과 모달 -->
     <div id="win-modal" class="modal">
         <div class="modal-content bg-white p-8 rounded-[3rem] text-center shadow-2xl border-[8px] border-[#FFB800]">
             <div class="text-5xl mb-4 animate-bounce">✨</div>
@@ -296,10 +330,8 @@
             const btn = document.getElementById('spin-button');
             const btnText = document.getElementById('spin-button-text');
             
-            // 시스템이 준비되지 않았으면 대기 상태 유지
             if (!window.isFirebaseReady) {
-                btn.disabled = true;
-                btnText.innerText = "시스템 연결 중...";
+                // 이 텍스트가 안바뀐다면 위 script type="module" 블록의 에러 로그를 확인해야 함
                 return;
             }
 
@@ -338,7 +370,6 @@
 
         async function spin() {
             if (!window.isFirebaseReady) return;
-
             if (isSpinning || hasParticipated || !window.items.length) return;
             
             const activeItems = window.items.filter(item => item.stock > 0 && item.days.includes(window.currentDay));
