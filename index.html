@@ -9,7 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     
     <script>
-        // 기본 데이터 설정 (데이터베이스 연결 전 초기값)
+        // 기본 데이터 설정
         const DEFAULT_ITEMS = [
             { id: 1, name: "튼튼영어 베이비리그", stock: 5, color: "#fff4d1", days: ["목", "금", "토", "일"] },
             { id: 2, name: "그레이트북스 세트", stock: 10, color: "#ffebad", days: ["토", "일"] },
@@ -22,6 +22,7 @@
 
         window.items = DEFAULT_ITEMS;
         window.currentDay = "목";
+        window.isFirebaseReady = false; // 시스템 준비 상태 플래그
         let isSpinning = false;
         let hasParticipated = localStorage.getItem('lucky_draw_participated') === 'true';
     </script>
@@ -38,7 +39,6 @@
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        // 전역에서 Firestore 함수를 안전하게 사용할 수 있도록 즉시 할당
         window.db = db;
         window.appId = appId;
         window.auth = auth;
@@ -63,6 +63,8 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 window.currentUser = user;
+                window.isFirebaseReady = true; // 연결 완료 마킹
+                
                 const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data');
                 
                 onSnapshot(settingsDocRef, (docSnap) => {
@@ -75,7 +77,7 @@
                     }
                     renderWheel();
                     updateAdminUI();
-                    checkParticipation();
+                    checkParticipation(); // 인증 완료 후 버튼 상태 갱신
                 }, (error) => {
                     console.error("동기화 오류:", error);
                 });
@@ -229,8 +231,8 @@
                 </div>
             </div>
 
-            <button id="spin-button" onclick="spin()" class="w-full mt-8 main-yellow disabled:bg-gray-300 text-white text-lg font-black py-5 rounded-2xl shadow-[0_6px_0_#D99C00] active:shadow-none active:translate-y-[6px] transition-all">
-                <span id="spin-button-text">추첨 START!</span>
+            <button id="spin-button" onclick="spin()" disabled class="w-full mt-8 main-yellow disabled:bg-gray-300 text-white text-lg font-black py-5 rounded-2xl shadow-[0_6px_0_#D99C00] active:shadow-none active:translate-y-[6px] transition-all">
+                <span id="spin-button-text">시스템 연결 중...</span>
             </button>
 
             <div class="text-left bg-gray-50 p-5 rounded-2xl border border-gray-100 mt-6">
@@ -248,7 +250,7 @@
         </div>
     </div>
 
-    <!-- 관리자 로그인 -->
+    <!-- 관리자 로그인 및 설정 모달 생략 (동일) -->
     <div id="admin-login-modal" class="modal">
         <div class="modal-content bg-white p-8 rounded-3xl shadow-2xl border-4 border-[#FFB800]">
             <h3 class="font-black text-center mb-4">관리자 인증</h3>
@@ -257,23 +259,19 @@
         </div>
     </div>
 
-    <!-- 관리자 설정 -->
     <div id="admin-settings-modal" class="modal">
         <div class="modal-content bg-white p-6 rounded-3xl w-full max-h-[85vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-black">전체 설정 변경</h3>
                 <button onclick="closeModal('admin-settings-modal')"><i class="fas fa-times-circle text-gray-300 text-xl"></i></button>
             </div>
-
             <div class="flex gap-1 mb-6">
                 <button onclick="changeGlobalDay('목')" id="admin-day-목" class="admin-day-btn">목</button>
                 <button onclick="changeGlobalDay('금')" id="admin-day-금" class="admin-day-btn">금</button>
                 <button onclick="changeGlobalDay('토')" id="admin-day-토" class="admin-day-btn">토</button>
                 <button onclick="changeGlobalDay('일')" id="admin-day-일" class="admin-day-btn">일</button>
             </div>
-            
             <div id="admin-item-list" class="space-y-3"></div>
-
             <div class="mt-6 flex gap-2 sticky bottom-0 bg-white py-3 border-t">
                 <button onclick="addItem()" class="flex-1 bg-gray-100 py-3 rounded-lg font-black text-xs">항목 추가</button>
                 <button id="admin-save-btn" onclick="saveData()" class="flex-1 main-yellow text-white py-3 rounded-lg font-black text-xs shadow-md">저장 (전체 기기 반영)</button>
@@ -282,7 +280,6 @@
         </div>
     </div>
 
-    <!-- 당첨 안내 -->
     <div id="win-modal" class="modal">
         <div class="modal-content bg-white p-8 rounded-[3rem] text-center shadow-2xl border-[8px] border-[#FFB800]">
             <div class="text-5xl mb-4 animate-bounce">✨</div>
@@ -298,6 +295,14 @@
         function checkParticipation() {
             const btn = document.getElementById('spin-button');
             const btnText = document.getElementById('spin-button-text');
+            
+            // 시스템이 준비되지 않았으면 대기 상태 유지
+            if (!window.isFirebaseReady) {
+                btn.disabled = true;
+                btnText.innerText = "시스템 연결 중...";
+                return;
+            }
+
             if (hasParticipated) {
                 btn.disabled = true;
                 btnText.innerText = "이미 참여 완료되었습니다";
@@ -324,7 +329,6 @@
                 wheel.appendChild(seg);
             });
 
-            // 고객 화면 렌더링: 재고(stock) 정보와 품절 여부를 일절 노출하지 않음
             document.getElementById('inventory-list').innerHTML = window.items.map(item => `
                 <div class="flex justify-between items-center py-3 px-4 bg-white rounded-lg border border-gray-100">
                     <span class="text-[12px] font-bold text-gray-700">${item.name}</span>
@@ -333,11 +337,7 @@
         }
 
         async function spin() {
-            // Firebase 함수가 로드되었는지 확인하는 방어 코드
-            if (typeof window.fsDoc !== 'function') {
-                alert('시스템 초기화 중입니다. 잠시 후 다시 시도해주세요.');
-                return;
-            }
+            if (!window.isFirebaseReady) return;
 
             if (isSpinning || hasParticipated || !window.items.length) return;
             
@@ -370,7 +370,6 @@
                 document.getElementById('win-item-name').innerText = winner.name;
                 document.getElementById('win-modal').classList.add('active');
                 
-                // 재고 차감 반영 (동기화)
                 const newItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
                 try {
                     const settingsDocRef = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
@@ -400,7 +399,6 @@
         function showSettings() {
             updateAdminUI();
             const list = document.getElementById('admin-item-list');
-            // 관리자 설정 페이지에서는 재고 확인 및 수정이 가능함
             list.innerHTML = window.items.map((item, i) => `
                 <div class="p-3 bg-gray-50 rounded-xl border">
                     <input type="text" value="${item.name}" oninput="window.items[${i}].name = this.value" class="w-full p-2 mb-2 rounded border font-bold text-xs">
@@ -445,17 +443,13 @@
         }
 
         async function saveData() {
-            if (typeof window.fsDoc !== 'function') {
-                alert('시스템이 아직 준비되지 않았습니다.');
-                return;
-            }
-
+            if (!window.isFirebaseReady) return;
             const btn = document.getElementById('admin-save-btn');
             btn.disabled = true;
             try {
                 const settingsDocRef = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
                 await window.fsSetDoc(settingsDocRef, { items: window.items, currentDay: window.currentDay });
-                alert("성공적으로 저장되었습니다. 모든 기기에 즉시 반영됩니다.");
+                alert("저장되었습니다.");
                 closeModal('admin-settings-modal');
             } catch (e) { alert("저장 실패"); } finally { btn.disabled = false; }
         }
