@@ -9,7 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     
     <script>
-        // 초기 로딩 최적화를 위한 기본 데이터 설정
+        // 기본 데이터 설정 (데이터베이스 연결 전 초기값)
         const DEFAULT_ITEMS = [
             { id: 1, name: "튼튼영어 베이비리그", stock: 5, color: "#fff4d1", days: ["목", "금", "토", "일"] },
             { id: 2, name: "그레이트북스 세트", stock: 10, color: "#ffebad", days: ["토", "일"] },
@@ -26,11 +26,11 @@
         let hasParticipated = localStorage.getItem('lucky_draw_participated') === 'true';
     </script>
 
-    <!-- Firebase SDK -->
+    <!-- 실시간 데이터 동기화 엔진 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc, increment, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
@@ -50,7 +50,7 @@
                     await signInAnonymously(auth);
                 }
             } catch (error) {
-                console.error("Auth Error:", error);
+                console.error("인증 오류:", error);
             }
         };
 
@@ -59,35 +59,26 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 window.currentUser = user;
-                startRealtimeSync();
+                // 실시간 리스너 연결: 관리자가 저장하면 모든 기기에 즉시 반영됨
+                const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings');
+                
+                onSnapshot(settingsDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        window.items = data.items || DEFAULT_ITEMS;
+                        window.currentDay = data.currentDay || "목";
+                    } else {
+                        // 초기 데이터가 없는 경우 생성
+                        setDoc(settingsDocRef, { items: DEFAULT_ITEMS, currentDay: "목" });
+                    }
+                    renderWheel();
+                    updateAdminUI();
+                    checkParticipation();
+                }, (error) => {
+                    console.error("동기화 오류:", error);
+                });
             }
         });
-
-        const startRealtimeSync = () => {
-            // [에러 수정] Firestore 경로 규칙에 맞게 세그먼트 인자 수정 (짝수 개 준수)
-            const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings');
-            
-            // 초기 렌더링 호출
-            if (typeof renderWheel === 'function') renderWheel();
-
-            onSnapshot(settingsDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    window.items = data.items || DEFAULT_ITEMS;
-                    window.currentDay = data.currentDay || "목";
-                } else {
-                    const initialData = { items: DEFAULT_ITEMS, currentDay: "목" };
-                    setDoc(settingsDocRef, initialData);
-                    window.items = DEFAULT_ITEMS;
-                    window.currentDay = "목";
-                }
-                if (typeof renderWheel === 'function') renderWheel();
-                if (typeof updateAdminUI === 'function') updateAdminUI();
-                if (typeof checkParticipation === 'function') checkParticipation();
-            }, (error) => {
-                console.error("Sync Error:", error);
-            });
-        };
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
@@ -108,19 +99,6 @@
             position: relative;
             background: radial-gradient(circle at center, rgba(255, 184, 0, 0.08) 0%, transparent 70%);
             border-radius: 50%;
-        }
-
-        .wheel-bg-deco {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 85%;
-            height: 85%;
-            border: 1px dashed rgba(255, 184, 0, 0.2);
-            border-radius: 50%;
-            pointer-events: none;
-            z-index: 0;
         }
 
         #wheel-container {
@@ -146,8 +124,6 @@
             z-index: 10;
         }
 
-        #wheel.spinning { filter: blur(1px); }
-
         .segment {
             position: absolute;
             width: 50%;
@@ -157,7 +133,7 @@
             align-items: center;
             justify-content: center;
             box-sizing: border-box;
-            border: 0.5px solid rgba(0,0,0,0.03);
+            border: 0.5px solid rgba(0,0,0,0.05);
         }
 
         .needle {
@@ -171,14 +147,6 @@
             filter: drop-shadow(0 3px 5px rgba(0,0,0,0.2));
         }
 
-        .needle.tick { animation: tick-anim 0.12s ease-out; }
-
-        @keyframes tick-anim {
-            0% { transform: translateX(-50%) rotate(0deg); }
-            50% { transform: translateX(-50%) rotate(-15deg); }
-            100% { transform: translateX(-50%) rotate(0deg); }
-        }
-
         .modal {
             display: none;
             position: fixed;
@@ -190,31 +158,16 @@
             align-items: center;
             opacity: 0;
             transition: opacity 0.3s ease;
-            padding: 15px;
         }
 
         .modal.active { display: flex; opacity: 1; }
         .modal-content {
             transform: scale(0.9);
             transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-            width: 100%;
-            max-width: 380px;
+            width: 90%;
+            max-width: 400px;
         }
         .modal.active .modal-content { transform: scale(1); }
-
-        .shine {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: linear-gradient(135deg, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%);
-            background-size: 300% 300%;
-            animation: shine-anim 8s infinite linear;
-            pointer-events: none;
-        }
-
-        @keyframes shine-anim {
-            0% { background-position: 200% 200%; }
-            100% { background-position: -200% -200%; }
-        }
 
         .admin-day-btn {
             flex: 1;
@@ -240,129 +193,102 @@
             border-radius: 2rem;
             overflow: hidden;
             border: 6px solid #FFB800; 
-            position: relative;
             box-shadow: 0 20px 40px -10px rgba(0,0,0,0.15);
-        }
-
-        #inventory-list-container {
-            max-height: 180px;
-            overflow-y: auto;
-            padding-right: 4px;
-        }
-        #inventory-list-container::-webkit-scrollbar { width: 4px; }
-        #inventory-list-container::-webkit-scrollbar-thumb {
-            background-color: #FFB800;
-            border-radius: 10px;
         }
     </style>
 </head>
-<body class="p-2 sm:p-4 flex flex-col items-center justify-center min-h-screen">
+<body class="p-4 flex flex-col items-center justify-center min-h-screen">
 
     <div class="main-card">
-        <div class="shine"></div>
-        
         <div class="main-yellow pt-6 pb-5 px-5 text-center relative">
-            <h1 class="text-white text-xl sm:text-2xl font-black leading-tight tracking-tight drop-shadow-md">
+            <h1 class="text-white text-xl sm:text-2xl font-black leading-tight drop-shadow-md">
                 서울국제유아교육전<br>& 키즈페어
             </h1>
-            <div class="inline-block mt-2 px-5 py-1 bg-black/10 rounded-full border border-white/10 backdrop-blur-sm">
+            <div class="inline-block mt-2 px-5 py-1 bg-black/10 rounded-full border border-white/10">
                 <p id="display-day-text" class="text-white text-[10px] font-black tracking-widest uppercase">LUCKY DRAW EVENT</p>
             </div>
         </div>
 
-        <div class="p-4 sm:p-6 text-center bg-white relative">
-            <div class="mb-3 sm:mb-4">
-                <p class="text-[#FFB800] text-[10px] font-black mb-0.5 tracking-wider uppercase">사전등록자 한정 혜택(1인 1회 참여)</p>
+        <div class="p-6 text-center bg-white relative">
+            <div class="mb-4">
+                <p class="text-[#FFB800] text-[10px] font-black mb-0.5 tracking-wider uppercase">사전등록자 한정 혜택 (1인 1회)</p>
                 <h2 class="text-lg sm:text-xl font-black text-gray-800 tracking-tighter">행운의 룰렛을 돌려보세요!</h2>
             </div>
 
             <div id="wheel-outer-wrapper">
-                <div class="wheel-bg-deco"></div>
                 <div id="wheel-container">
                     <div id="needle" class="needle">
                         <svg viewBox="0 0 40 50" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M20 50L40 0H0L20 50Z" fill="#FF4D4D"/>
-                            <circle cx="20" cy="15" r="5" fill="white" fill-opacity="0.3"/>
                         </svg>
                     </div>
                     <div id="wheel" style="transform: rotate(0deg);"></div>
-                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full border-[4px] border-[#222] z-30 shadow-md flex items-center justify-center">
-                        <div class="w-2 h-2 bg-[#FFB800] rounded-full shadow-inner animate-pulse"></div>
-                    </div>
+                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-full border-[4px] border-[#222] z-30 shadow-md"></div>
                 </div>
             </div>
 
-            <button id="spin-button" onclick="spin()" class="w-full mt-6 sm:mt-8 main-yellow hover:bg-[#e6a600] disabled:bg-gray-300 disabled:shadow-none disabled:translate-y-0 text-white text-lg sm:text-xl font-black py-4 sm:py-5 rounded-2xl shadow-[0_6px_0_#D99C00] active:shadow-none active:translate-y-[6px] mb-6 transition-all group relative overflow-hidden">
-                <span id="spin-button-text" class="relative z-10">추첨 START!</span>
-                <div class="absolute top-0 -left-full w-full h-full bg-white/20 skew-x-12 transition-all duration-1000 group-hover:left-full"></div>
+            <button id="spin-button" onclick="spin()" class="w-full mt-8 main-yellow disabled:bg-gray-300 text-white text-lg font-black py-5 rounded-2xl shadow-[0_6px_0_#D99C00] active:shadow-none active:translate-y-[6px] transition-all">
+                <span id="spin-button-text">추첨 START!</span>
             </button>
 
-            <div class="text-left bg-gray-50 p-4 sm:p-5 rounded-2xl border border-gray-100 shadow-inner">
+            <div class="text-left bg-gray-50 p-5 rounded-2xl border border-gray-100 mt-6">
                 <div class="flex items-center mb-3">
                     <span class="text-lg mr-2">🎁</span>
-                    <h3 class="font-black text-gray-800 text-sm sm:text-base">경품 리스트</h3>
+                    <h3 class="font-black text-gray-800 text-sm">경품 리스트</h3>
                 </div>
-                <div id="inventory-list-container">
-                    <div id="inventory-list" class="grid grid-cols-1 gap-2"></div>
-                </div>
+                <div id="inventory-list" class="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-2"></div>
             </div>
         </div>
         
         <div class="bg-gray-100/50 py-3 px-6 flex justify-between items-center border-t border-gray-100">
-            <p class="text-[9px] text-gray-400 font-bold tracking-wider">© (주)세계전람. All rights reserved.</p>
-            <button onclick="openAdmin()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-200 hover:text-[#FFB800] transition-all">
-                <i class="fas fa-cog text-xs"></i>
-            </button>
+            <p class="text-[9px] text-gray-400 font-bold tracking-wider">© (주)세계전람</p>
+            <button onclick="openAdmin()" class="text-gray-200 hover:text-[#FFB800]"><i class="fas fa-cog text-xs"></i></button>
         </div>
     </div>
 
-    <!-- 관리자 모달들 -->
+    <!-- 관리자 로그인 -->
     <div id="admin-login-modal" class="modal">
-        <div class="modal-content bg-white p-6 sm:p-10 rounded-3xl shadow-2xl border-4 border-[#FFB800]">
-            <h3 class="font-black text-base text-center mb-4">관리자 인증</h3>
-            <input type="password" id="admin-pass" pattern="\d*" inputmode="numeric" class="w-full bg-gray-50 border-2 border-gray-100 p-3 rounded-xl mb-4 text-center text-xl tracking-[0.4em] focus:outline-none focus:border-[#FFB800]" placeholder="****">
-            <button onclick="checkAdminPass()" class="w-full main-yellow text-white py-3 rounded-xl font-black shadow-lg text-sm">확인</button>
+        <div class="modal-content bg-white p-8 rounded-3xl shadow-2xl border-4 border-[#FFB800]">
+            <h3 class="font-black text-center mb-4">관리자 인증</h3>
+            <input type="password" id="admin-pass" pattern="\d*" inputmode="numeric" class="w-full border-2 p-3 rounded-xl mb-4 text-center tracking-[0.5em]" placeholder="****">
+            <button onclick="checkAdminPass()" class="w-full main-yellow text-white py-3 rounded-xl font-black">확인</button>
         </div>
     </div>
 
+    <!-- 관리자 설정 -->
     <div id="admin-settings-modal" class="modal">
-        <div class="modal-content bg-white p-5 sm:p-8 rounded-3xl w-full max-w-2xl max-h-[80vh] overflow-y-auto m-2 shadow-2xl">
-            <div class="mb-6 p-4 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-                <h4 class="text-center font-black text-gray-400 text-[10px] mb-3 uppercase tracking-widest">운영 설정 및 초기화</h4>
-                <div class="flex gap-1 mb-4">
-                    <button onclick="changeGlobalDay('목')" id="admin-day-목" class="admin-day-btn">목</button>
-                    <button onclick="changeGlobalDay('금')" id="admin-day-금" class="admin-day-btn">금</button>
-                    <button onclick="changeGlobalDay('토')" id="admin-day-토" class="admin-day-btn">토</button>
-                    <button onclick="changeGlobalDay('일')" id="admin-day-일" class="admin-day-btn">일</button>
-                </div>
-                <button onclick="resetParticipation()" class="w-full bg-red-50 text-red-500 py-3 rounded-xl font-black text-[11px] border border-red-100 hover:bg-red-100 transition-colors">
-                    <i class="fas fa-undo mr-1"></i> 현재 기기 참여 기록 초기화
-                </button>
+        <div class="modal-content bg-white p-6 rounded-3xl w-full max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-black">전체 설정 변경</h3>
+                <button onclick="closeModal('admin-settings-modal')"><i class="fas fa-times-circle text-gray-300 text-xl"></i></button>
             </div>
 
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-black">경품 설정</h3>
-                <button onclick="closeModal('admin-settings-modal')" class="text-gray-300"><i class="fas fa-times-circle text-xl"></i></button>
+            <div class="flex gap-1 mb-6">
+                <button onclick="changeGlobalDay('목')" id="admin-day-목" class="admin-day-btn">목</button>
+                <button onclick="changeGlobalDay('금')" id="admin-day-금" class="admin-day-btn">금</button>
+                <button onclick="changeGlobalDay('토')" id="admin-day-토" class="admin-day-btn">토</button>
+                <button onclick="changeGlobalDay('일')" id="admin-day-일" class="admin-day-btn">일</button>
             </div>
             
-            <div id="admin-item-list" class="space-y-2"></div>
+            <div id="admin-item-list" class="space-y-3"></div>
 
             <div class="mt-6 flex gap-2 sticky bottom-0 bg-white py-3 border-t">
-                <button onclick="addItem()" class="flex-1 bg-gray-100 py-3 rounded-lg font-black text-xs">추가</button>
-                <button id="admin-save-btn" onclick="saveAndReload()" class="flex-1 main-yellow text-white py-3 rounded-lg font-black text-xs shadow-md">저장</button>
+                <button onclick="addItem()" class="flex-1 bg-gray-100 py-3 rounded-lg font-black text-xs">항목 추가</button>
+                <button id="admin-save-btn" onclick="saveData()" class="flex-1 main-yellow text-white py-3 rounded-lg font-black text-xs shadow-md">저장 (전체 기기 반영)</button>
             </div>
+            <button onclick="resetParticipation()" class="w-full mt-4 text-red-400 text-[10px] font-bold">이 기기 참여 기록 초기화</button>
         </div>
     </div>
 
+    <!-- 당첨 안내 -->
     <div id="win-modal" class="modal">
-        <div class="modal-content bg-white p-6 rounded-[3rem] text-center shadow-2xl border-[8px] border-[#FFB800] relative">
-            <div class="text-5xl mb-3 animate-bounce">✨</div>
-            <h2 class="text-xl font-black mb-0.5 text-gray-800">축하합니다!</h2>
-            <p class="text-[10px] font-bold text-gray-400 mb-4">행운의 주인공이 되셨습니다</p>
-            <div class="bg-yellow-50 py-6 rounded-2xl border-[2px] border-dashed border-[#FFB800] my-3">
-                <p id="win-item-name" class="text-lg font-black text-[#E6A600] px-4 leading-tight"></p>
+        <div class="modal-content bg-white p-8 rounded-[3rem] text-center shadow-2xl border-[8px] border-[#FFB800]">
+            <div class="text-5xl mb-4 animate-bounce">✨</div>
+            <h2 class="text-xl font-black mb-1">축하합니다!</h2>
+            <div class="bg-yellow-50 py-6 rounded-2xl border-2 border-dashed border-[#FFB800] my-4">
+                <p id="win-item-name" class="text-lg font-black text-[#E6A600] px-4"></p>
             </div>
-            <button onclick="closeModal('win-modal')" class="w-full bg-black text-white py-3 rounded-2xl font-black text-sm shadow-md active:scale-95 transition-transform">확인</button>
+            <button onclick="closeModal('win-modal')" class="w-full bg-black text-white py-4 rounded-2xl font-black text-sm">확인</button>
         </div>
     </div>
 
@@ -370,7 +296,6 @@
         function checkParticipation() {
             const btn = document.getElementById('spin-button');
             const btnText = document.getElementById('spin-button-text');
-            if (!btn || !btnText) return;
             if (hasParticipated) {
                 btn.disabled = true;
                 btnText.innerText = "이미 참여 완료되었습니다";
@@ -380,72 +305,41 @@
             }
         }
 
-        function resetParticipation() {
-            localStorage.removeItem('lucky_draw_participated');
-            hasParticipated = false;
-            alert('현재 기기의 참여 기록이 초기화되었습니다.');
-            closeModal('admin-settings-modal');
-            checkParticipation();
-        }
-
-        async function changeGlobalDay(day) {
-            if (!window.currentUser || !window.db) return;
-            window.currentDay = day;
-            updateAdminUI(); 
-            try {
-                const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
-                await updateDoc(settingsDocRef, { currentDay: day });
-            } catch (e) { console.error(e); }
-        }
-
-        function updateAdminUI() {
-            document.querySelectorAll('.admin-day-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.id === `admin-day-${window.currentDay}`);
-            });
-        }
-
         function renderWheel() {
             const wheel = document.getElementById('wheel');
             if (!wheel) return;
             wheel.innerHTML = '';
             
-            const displayItems = window.items; 
-            const total = displayItems.length;
+            const total = window.items.length;
+            if (total === 0) return;
             
-            if (total === 0) {
-                wheel.innerHTML = '<div class="flex items-center justify-center h-full text-gray-300 font-black px-6 text-xs leading-tight text-center">경품 등록 필요</div>';
-            } else {
-                const step = 360 / total;
-                displayItems.forEach((item, index) => {
-                    const seg = document.createElement('div');
-                    seg.className = 'segment';
-                    seg.style.backgroundColor = item.color;
-                    seg.style.transform = `rotate(${step * index}deg) skewY(${90 - step}deg)`;
-                    wheel.appendChild(seg);
-                });
-            }
+            const step = 360 / total;
+            window.items.forEach((item, index) => {
+                const seg = document.createElement('div');
+                seg.className = 'segment';
+                seg.style.backgroundColor = item.color;
+                seg.style.transform = `rotate(${step * index}deg) skewY(${90 - step}deg)`;
+                wheel.appendChild(seg);
+            });
 
-            const invList = document.getElementById('inventory-list');
-            if (invList) {
-                invList.innerHTML = window.items.map(item => `
-                    <div class="flex justify-between items-center py-3 px-5 bg-white rounded-lg border border-gray-100 shadow-sm">
-                        <span class="text-[12px] font-black text-gray-700">${item.name}</span>
-                    </div>
-                `).join('');
-            }
+            document.getElementById('inventory-list').innerHTML = window.items.map(item => `
+                <div class="flex justify-between items-center py-3 px-4 bg-white rounded-lg border border-gray-100">
+                    <span class="text-[12px] font-bold text-gray-700">${item.name}</span>
+                    <span class="text-[10px] font-black ${item.stock > 0 ? 'text-[#FFB800]' : 'text-red-400'}">재고: ${item.stock}</span>
+                </div>
+            `).join('');
         }
 
         async function spin() {
-            if (isSpinning || hasParticipated || !window.currentUser || !window.items.length) return;
+            if (isSpinning || hasParticipated || !window.items.length) return;
+            
             const activeItems = window.items.filter(item => item.stock > 0 && item.days.includes(window.currentDay));
-            if (activeItems.length === 0) { alert('현재 참여 가능한 경품 재고가 없습니다.'); return; }
+            if (activeItems.length === 0) { alert('오늘 참여 가능한 경품 재고가 없습니다.'); return; }
 
             isSpinning = true;
             const wheel = document.getElementById('wheel');
-            const needle = document.getElementById('needle');
             const btnText = document.getElementById('spin-button-text');
             document.getElementById('spin-button').disabled = true;
-            wheel.classList.add('spinning');
 
             const totalStock = activeItems.reduce((s, i) => s + i.stock, 0);
             let rand = Math.floor(Math.random() * totalStock);
@@ -458,31 +352,27 @@
 
             const winnerIdx = window.items.findIndex(it => it.id === winner.id);
             const step = 360 / window.items.length;
-            const spins = 10 + Math.floor(Math.random() * 5);
+            const spins = 10;
             const rotation = (spins * 360) - (winnerIdx * step) - (step / 2);
+            
             wheel.style.transform = `rotate(${rotation}deg)`;
 
-            const tickInterval = setInterval(() => {
-                needle.classList.add('tick');
-                setTimeout(() => needle.classList.remove('tick'), 100);
-            }, 250);
-
             setTimeout(async () => {
-                clearInterval(tickInterval);
-                wheel.classList.remove('spinning');
-                confetti({ particleCount: 80, spread: 50, origin: { y: 0.6 }, colors: ['#FFB800', '#ffffff'], zIndex: 10000 });
+                confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, zIndex: 10000 });
                 document.getElementById('win-item-name').innerText = winner.name;
                 document.getElementById('win-modal').classList.add('active');
                 
+                // 재고 차감 반영 (동기화)
+                const newItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
                 try {
-                    const newItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
                     const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
                     await updateDoc(settingsDocRef, { items: newItems });
                 } catch (e) { console.error(e); }
                 
                 hasParticipated = true;
                 localStorage.setItem('lucky_draw_participated', 'true');
-                setTimeout(() => { isSpinning = false; btnText.innerText = "이미 참여 완료되었습니다"; }, 500);
+                isSpinning = false;
+                btnText.innerText = "이미 참여 완료되었습니다";
             }, 5200);
         }
 
@@ -496,7 +386,26 @@
                 closeModal('admin-login-modal');
                 document.getElementById('admin-pass').value = '';
                 showSettings();
-            } else { alert('비밀번호가 다릅니다.'); }
+            } else { alert('비밀번호 오류'); }
+        }
+
+        function showSettings() {
+            updateAdminUI();
+            const list = document.getElementById('admin-item-list');
+            list.innerHTML = window.items.map((item, i) => `
+                <div class="p-3 bg-gray-50 rounded-xl border">
+                    <input type="text" value="${item.name}" oninput="window.items[${i}].name = this.value" class="w-full p-2 mb-2 rounded border font-bold text-xs">
+                    <div class="flex justify-between items-center">
+                        <div class="flex gap-1">
+                            ${['목', '금', '토', '일'].map(d => `
+                                <button onclick="toggleDay(${i}, '${d}')" class="w-7 h-7 rounded text-[10px] font-black border ${item.days.includes(d) ? 'bg-black text-[#FFB800]' : 'bg-white text-gray-300'}">${d}</button>
+                            `).join('')}
+                        </div>
+                        <input type="number" value="${item.stock}" oninput="window.items[${i}].stock = parseInt(this.value)" class="w-12 p-1 text-center font-black text-xs border rounded">
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('admin-settings-modal').classList.add('active');
         }
 
         function toggleDay(idx, day) {
@@ -507,59 +416,42 @@
             showSettings();
         }
 
-        function updateItemField(idx, field, value) {
-            if (field === 'stock') value = parseInt(value) || 0;
-            window.items[idx][field] = value;
+        async function changeGlobalDay(day) {
+            window.currentDay = day;
+            updateAdminUI();
         }
 
-        function showSettings() {
-            updateAdminUI();
-            const list = document.getElementById('admin-item-list');
-            if (!list) return;
-            list.innerHTML = window.items.map((item, i) => `
-                <div class="p-3 bg-gray-50 rounded-xl border border-gray-200">
-                    <div class="flex gap-2 mb-2">
-                        <input type="text" value="${item.name}" oninput="updateItemField(${i}, 'name', this.value)" class="flex-1 p-2 rounded-lg border font-bold text-[10px]">
-                        <div class="flex items-center gap-1 bg-white border rounded-lg px-2">
-                            <input type="number" value="${item.stock}" oninput="updateItemField(${i}, 'stock', this.value)" class="w-10 p-1 text-center font-black text-[10px]">
-                        </div>
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <div class="flex gap-1">
-                            ${['목', '금', '토', '일'].map(d => `
-                                <button onclick="toggleDay(${i}, '${d}')" class="w-6 h-6 rounded text-[8px] font-black border ${item.days.includes(d) ? 'bg-black text-[#FFB800] border-black' : 'bg-white text-gray-300 border-gray-200'}">${d}</button>
-                            `).join('')}
-                        </div>
-                        <button onclick="window.items.splice(${i}, 1); showSettings();" class="text-red-400 text-xs"><i class="fas fa-trash-alt"></i></button>
-                    </div>
-                </div>
-            `).join('');
-            document.getElementById('admin-settings-modal').classList.add('active');
+        function updateAdminUI() {
+            document.querySelectorAll('.admin-day-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.id === `admin-day-${window.currentDay}`);
+            });
         }
 
         function addItem() {
-            window.items.push({ id: Date.now(), name: "신규 상품", stock: 10, color: "#ffffff", days: [window.currentDay] });
+            window.items.push({ id: Date.now(), name: "새 경품", stock: 10, color: "#f3f4f6", days: ["목", "금", "토", "일"] });
             showSettings();
         }
 
-        async function saveAndReload() {
-            if (!window.currentUser || !window.db) return;
-            const saveBtn = document.getElementById('admin-save-btn');
-            saveBtn.disabled = true;
+        async function saveData() {
+            const btn = document.getElementById('admin-save-btn');
+            btn.disabled = true;
             try {
                 const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
                 await setDoc(settingsDocRef, { items: window.items, currentDay: window.currentDay });
-                alert("저장되었습니다.");
+                alert("성공적으로 저장되었습니다. 모든 기기에 즉시 반영됩니다.");
                 closeModal('admin-settings-modal');
-            } catch (e) { alert("저장 실패"); } finally { saveBtn.disabled = false; }
+            } catch (e) { alert("저장 실패"); } finally { btn.disabled = false; }
         }
 
-        function closeModal(id) { 
-            const el = document.getElementById(id);
-            if (el) el.classList.remove('active'); 
+        function resetParticipation() {
+            localStorage.removeItem('lucky_draw_participated');
+            hasParticipated = false;
+            alert('기록 초기화 완료');
+            closeModal('admin-settings-modal');
+            checkParticipation();
         }
 
-        window.onload = () => { renderWheel(); checkParticipation(); };
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
     </script>
 </body>
 </html>
