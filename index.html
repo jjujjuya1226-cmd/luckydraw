@@ -7,6 +7,25 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <script>
+        // 초기 로딩 최적화를 위한 기본 데이터 설정
+        const DEFAULT_ITEMS = [
+            { id: 1, name: "튼튼영어 베이비리그", stock: 5, color: "#fff4d1", days: ["목", "금", "토", "일"] },
+            { id: 2, name: "그레이트북스 세트", stock: 10, color: "#ffebad", days: ["토", "일"] },
+            { id: 3, name: "아람 전집", stock: 8, color: "#ffe18a", days: ["목", "금"] },
+            { id: 4, name: "키즈에이원 세트", stock: 15, color: "#ffd866", days: ["목", "토"] },
+            { id: 5, name: "매직큐브 큐블로", stock: 20, color: "#ffcf42", days: ["금", "일"] },
+            { id: 6, name: "동아제약 미니막스", stock: 50, color: "#ffc51a", days: ["목", "금", "토", "일"] },
+            { id: 7, name: "참가상", stock: 2000, color: "#f3f4f6", days: ["목", "금", "토", "일"] }
+        ];
+
+        window.items = DEFAULT_ITEMS;
+        window.currentDay = "목";
+        let isSpinning = false;
+        let hasParticipated = localStorage.getItem('lucky_draw_participated') === 'true';
+    </script>
+
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -19,16 +38,19 @@
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        // Global state
         window.db = db;
         window.appId = appId;
         window.auth = auth;
 
         const initAuth = async () => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth Error:", error);
             }
         };
 
@@ -42,24 +64,29 @@
         });
 
         const startRealtimeSync = () => {
+            // [에러 수정] Firestore 경로 규칙에 맞게 세그먼트 인자 수정 (짝수 개 준수)
             const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings');
+            
+            // 초기 렌더링 호출
+            if (typeof renderWheel === 'function') renderWheel();
+
             onSnapshot(settingsDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    if (data.items) {
-                        window.items = data.items;
-                        window.currentDay = data.currentDay || "목";
-                        renderWheel();
-                        updateAdminUI();
-                    }
+                    window.items = data.items || DEFAULT_ITEMS;
+                    window.currentDay = data.currentDay || "목";
                 } else {
-                    // Initial setup if no data exists
-                    setDoc(settingsDocRef, {
-                        items: DEFAULT_ITEMS,
-                        currentDay: "목"
-                    });
+                    const initialData = { items: DEFAULT_ITEMS, currentDay: "목" };
+                    setDoc(settingsDocRef, initialData);
+                    window.items = DEFAULT_ITEMS;
+                    window.currentDay = "목";
                 }
-            }, (error) => console.error("Sync Error:", error));
+                if (typeof renderWheel === 'function') renderWheel();
+                if (typeof updateAdminUI === 'function') updateAdminUI();
+                if (typeof checkParticipation === 'function') checkParticipation();
+            }, (error) => {
+                console.error("Sync Error:", error);
+            });
         };
     </script>
     <style>
@@ -119,9 +146,7 @@
             z-index: 10;
         }
 
-        #wheel.spinning {
-            filter: blur(1px);
-        }
+        #wheel.spinning { filter: blur(1px); }
 
         .segment {
             position: absolute;
@@ -146,9 +171,7 @@
             filter: drop-shadow(0 3px 5px rgba(0,0,0,0.2));
         }
 
-        .needle.tick {
-            animation: tick-anim 0.12s ease-out;
-        }
+        .needle.tick { animation: tick-anim 0.12s ease-out; }
 
         @keyframes tick-anim {
             0% { transform: translateX(-50%) rotate(0deg); }
@@ -171,14 +194,12 @@
         }
 
         .modal.active { display: flex; opacity: 1; }
-
         .modal-content {
             transform: scale(0.9);
             transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
             width: 100%;
             max-width: 380px;
         }
-
         .modal.active .modal-content { transform: scale(1); }
 
         .shine {
@@ -228,9 +249,7 @@
             overflow-y: auto;
             padding-right: 4px;
         }
-        #inventory-list-container::-webkit-scrollbar {
-            width: 4px;
-        }
+        #inventory-list-container::-webkit-scrollbar { width: 4px; }
         #inventory-list-container::-webkit-scrollbar-thumb {
             background-color: #FFB800;
             border-radius: 10px;
@@ -242,7 +261,6 @@
     <div class="main-card">
         <div class="shine"></div>
         
-        <!-- 헤더 -->
         <div class="main-yellow pt-6 pb-5 px-5 text-center relative">
             <h1 class="text-white text-xl sm:text-2xl font-black leading-tight tracking-tight drop-shadow-md">
                 서울국제유아교육전<br>& 키즈페어
@@ -252,14 +270,12 @@
             </div>
         </div>
 
-        <!-- 메인 콘텐츠 -->
         <div class="p-4 sm:p-6 text-center bg-white relative">
             <div class="mb-3 sm:mb-4">
                 <p class="text-[#FFB800] text-[10px] font-black mb-0.5 tracking-wider uppercase">사전등록자 한정 혜택(1인 1회 참여)</p>
                 <h2 class="text-lg sm:text-xl font-black text-gray-800 tracking-tighter">행운의 룰렛을 돌려보세요!</h2>
             </div>
 
-            <!-- 룰렛 영역 -->
             <div id="wheel-outer-wrapper">
                 <div class="wheel-bg-deco"></div>
                 <div id="wheel-container">
@@ -276,13 +292,11 @@
                 </div>
             </div>
 
-            <!-- 추첨 버튼 -->
             <button id="spin-button" onclick="spin()" class="w-full mt-6 sm:mt-8 main-yellow hover:bg-[#e6a600] disabled:bg-gray-300 disabled:shadow-none disabled:translate-y-0 text-white text-lg sm:text-xl font-black py-4 sm:py-5 rounded-2xl shadow-[0_6px_0_#D99C00] active:shadow-none active:translate-y-[6px] mb-6 transition-all group relative overflow-hidden">
                 <span id="spin-button-text" class="relative z-10">추첨 START!</span>
                 <div class="absolute top-0 -left-full w-full h-full bg-white/20 skew-x-12 transition-all duration-1000 group-hover:left-full"></div>
             </button>
 
-            <!-- 경품 리스트 -->
             <div class="text-left bg-gray-50 p-4 sm:p-5 rounded-2xl border border-gray-100 shadow-inner">
                 <div class="flex items-center mb-3">
                     <span class="text-lg mr-2">🎁</span>
@@ -294,7 +308,6 @@
             </div>
         </div>
         
-        <!-- 푸터 -->
         <div class="bg-gray-100/50 py-3 px-6 flex justify-between items-center border-t border-gray-100">
             <p class="text-[9px] text-gray-400 font-bold tracking-wider">© (주)세계전람. All rights reserved.</p>
             <button onclick="openAdmin()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-200 hover:text-[#FFB800] transition-all">
@@ -303,7 +316,7 @@
         </div>
     </div>
 
-    <!-- 관리자 로그인 모달 -->
+    <!-- 관리자 모달들 -->
     <div id="admin-login-modal" class="modal">
         <div class="modal-content bg-white p-6 sm:p-10 rounded-3xl shadow-2xl border-4 border-[#FFB800]">
             <h3 class="font-black text-base text-center mb-4">관리자 인증</h3>
@@ -312,7 +325,6 @@
         </div>
     </div>
 
-    <!-- 관리자 설정 모달 -->
     <div id="admin-settings-modal" class="modal">
         <div class="modal-content bg-white p-5 sm:p-8 rounded-3xl w-full max-w-2xl max-h-[80vh] overflow-y-auto m-2 shadow-2xl">
             <div class="mb-6 p-4 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
@@ -324,12 +336,12 @@
                     <button onclick="changeGlobalDay('일')" id="admin-day-일" class="admin-day-btn">일</button>
                 </div>
                 <button onclick="resetParticipation()" class="w-full bg-red-50 text-red-500 py-3 rounded-xl font-black text-[11px] border border-red-100 hover:bg-red-100 transition-colors">
-                    <i class="fas fa-undo mr-1"></i> 현재 기기 참여 기록 초기화 (재참여 가능)
+                    <i class="fas fa-undo mr-1"></i> 현재 기기 참여 기록 초기화
                 </button>
             </div>
 
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-black">경품 설정 (관리자 전용 수량 노출)</h3>
+                <h3 class="text-lg font-black">경품 설정</h3>
                 <button onclick="closeModal('admin-settings-modal')" class="text-gray-300"><i class="fas fa-times-circle text-xl"></i></button>
             </div>
             
@@ -337,12 +349,11 @@
 
             <div class="mt-6 flex gap-2 sticky bottom-0 bg-white py-3 border-t">
                 <button onclick="addItem()" class="flex-1 bg-gray-100 py-3 rounded-lg font-black text-xs">추가</button>
-                <button onclick="saveAndReload()" class="flex-1 main-yellow text-white py-3 rounded-lg font-black text-xs shadow-md">저장</button>
+                <button id="admin-save-btn" onclick="saveAndReload()" class="flex-1 main-yellow text-white py-3 rounded-lg font-black text-xs shadow-md">저장</button>
             </div>
         </div>
     </div>
 
-    <!-- 당첨 모달 -->
     <div id="win-modal" class="modal">
         <div class="modal-content bg-white p-6 rounded-[3rem] text-center shadow-2xl border-[8px] border-[#FFB800] relative">
             <div class="text-5xl mb-3 animate-bounce">✨</div>
@@ -356,24 +367,10 @@
     </div>
 
     <script>
-        const DEFAULT_ITEMS = [
-            { id: 1, name: "튼튼영어 베이비리그", stock: 5, color: "#fff4d1", days: ["목", "금", "토", "일"] },
-            { id: 2, name: "그레이트북스 세트", stock: 10, color: "#ffebad", days: ["토", "일"] },
-            { id: 3, name: "아람 전집", stock: 8, color: "#ffe18a", days: ["목", "금"] },
-            { id: 4, name: "키즈에이원 세트", stock: 15, color: "#ffd866", days: ["목", "토"] },
-            { id: 5, name: "매직큐브 큐블로", stock: 20, color: "#ffcf42", days: ["금", "일"] },
-            { id: 6, name: "동아제약 미니막스", stock: 50, color: "#ffc51a", days: ["목", "금", "토", "일"] },
-            { id: 7, name: "참가상", stock: 2000, color: "#f3f4f6", days: ["목", "금", "토", "일"] }
-        ];
-
-        window.items = DEFAULT_ITEMS;
-        window.currentDay = "목";
-        let isSpinning = false;
-        let hasParticipated = localStorage.getItem('lucky_draw_participated') === 'true';
-
         function checkParticipation() {
             const btn = document.getElementById('spin-button');
             const btnText = document.getElementById('spin-button-text');
+            if (!btn || !btnText) return;
             if (hasParticipated) {
                 btn.disabled = true;
                 btnText.innerText = "이미 참여 완료되었습니다";
@@ -392,10 +389,13 @@
         }
 
         async function changeGlobalDay(day) {
-            if (!window.currentUser) return;
+            if (!window.currentUser || !window.db) return;
             window.currentDay = day;
-            const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
-            await updateDoc(settingsDocRef, { currentDay: day });
+            updateAdminUI(); 
+            try {
+                const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
+                await updateDoc(settingsDocRef, { currentDay: day });
+            } catch (e) { console.error(e); }
         }
 
         function updateAdminUI() {
@@ -426,53 +426,40 @@
             }
 
             const invList = document.getElementById('inventory-list');
-            invList.innerHTML = window.items.map(item => `
-                <div class="flex justify-between items-center py-3 px-5 bg-white rounded-lg border border-gray-100 shadow-sm">
-                    <span class="text-[12px] font-black text-gray-700">
-                        ${item.name}
-                    </span>
-                </div>
-            `).join('');
+            if (invList) {
+                invList.innerHTML = window.items.map(item => `
+                    <div class="flex justify-between items-center py-3 px-5 bg-white rounded-lg border border-gray-100 shadow-sm">
+                        <span class="text-[12px] font-black text-gray-700">${item.name}</span>
+                    </div>
+                `).join('');
+            }
         }
 
         async function spin() {
-            if (isSpinning || hasParticipated || !window.currentUser) return;
-            
+            if (isSpinning || hasParticipated || !window.currentUser || !window.items.length) return;
             const activeItems = window.items.filter(item => item.stock > 0 && item.days.includes(window.currentDay));
-            if (activeItems.length === 0) {
-                alert('현재 참여 가능한 경품 재고가 없습니다.');
-                return;
-            }
+            if (activeItems.length === 0) { alert('현재 참여 가능한 경품 재고가 없습니다.'); return; }
 
             isSpinning = true;
             const wheel = document.getElementById('wheel');
             const needle = document.getElementById('needle');
-            const btn = document.getElementById('spin-button');
             const btnText = document.getElementById('spin-button-text');
-            
-            btn.disabled = true;
+            document.getElementById('spin-button').disabled = true;
             wheel.classList.add('spinning');
 
             const totalStock = activeItems.reduce((s, i) => s + i.stock, 0);
             let rand = Math.floor(Math.random() * totalStock);
             let winner = activeItems[0];
             let acc = 0;
-
             for (let i = 0; i < activeItems.length; i++) {
                 acc += activeItems[i].stock;
-                if (rand < acc) {
-                    winner = activeItems[i];
-                    break;
-                }
+                if (rand < acc) { winner = activeItems[i]; break; }
             }
 
-            const displayItems = window.items;
-            const winnerIdx = displayItems.findIndex(it => it.id === winner.id);
-            const step = 360 / displayItems.length;
-            
+            const winnerIdx = window.items.findIndex(it => it.id === winner.id);
+            const step = 360 / window.items.length;
             const spins = 10 + Math.floor(Math.random() * 5);
             const rotation = (spins * 360) - (winnerIdx * step) - (step / 2);
-            
             wheel.style.transform = `rotate(${rotation}deg)`;
 
             const tickInterval = setInterval(() => {
@@ -483,25 +470,19 @@
             setTimeout(async () => {
                 clearInterval(tickInterval);
                 wheel.classList.remove('spinning');
-                confetti({ 
-                    particleCount: 80, spread: 50, origin: { y: 0.6 }, 
-                    colors: ['#FFB800', '#ffffff', '#FF4D4D'], zIndex: 10000 
-                });
-                
+                confetti({ particleCount: 80, spread: 50, origin: { y: 0.6 }, colors: ['#FFB800', '#ffffff'], zIndex: 10000 });
                 document.getElementById('win-item-name').innerText = winner.name;
                 document.getElementById('win-modal').classList.add('active');
                 
-                const newItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
-                const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
-                await updateDoc(settingsDocRef, { items: newItems });
+                try {
+                    const newItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
+                    const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
+                    await updateDoc(settingsDocRef, { items: newItems });
+                } catch (e) { console.error(e); }
                 
                 hasParticipated = true;
                 localStorage.setItem('lucky_draw_participated', 'true');
-                
-                setTimeout(() => {
-                    isSpinning = false;
-                    btnText.innerText = "이미 참여 완료되었습니다";
-                }, 500);
+                setTimeout(() => { isSpinning = false; btnText.innerText = "이미 참여 완료되었습니다"; }, 500);
             }, 5200);
         }
 
@@ -522,37 +503,34 @@
             const currentDays = window.items[idx].days;
             if (currentDays.includes(day)) {
                 window.items[idx].days = currentDays.filter(d => d !== day);
-            } else {
-                window.items[idx].days.push(day);
-            }
+            } else { window.items[idx].days.push(day); }
             showSettings();
+        }
+
+        function updateItemField(idx, field, value) {
+            if (field === 'stock') value = parseInt(value) || 0;
+            window.items[idx][field] = value;
         }
 
         function showSettings() {
             updateAdminUI();
             const list = document.getElementById('admin-item-list');
+            if (!list) return;
             list.innerHTML = window.items.map((item, i) => `
                 <div class="p-3 bg-gray-50 rounded-xl border border-gray-200">
                     <div class="flex gap-2 mb-2">
-                        <input type="text" value="${item.name}" onchange="window.items[${i}].name=this.value" class="flex-1 p-2 rounded-lg border font-bold text-[10px]" placeholder="상품명">
+                        <input type="text" value="${item.name}" oninput="updateItemField(${i}, 'name', this.value)" class="flex-1 p-2 rounded-lg border font-bold text-[10px]">
                         <div class="flex items-center gap-1 bg-white border rounded-lg px-2">
-                            <span class="text-[8px] font-black text-gray-300">재고</span>
-                            <input type="number" value="${item.stock}" onchange="window.items[${i}].stock=parseInt(this.value)" class="w-10 p-1 text-center font-black text-[10px] outline-none">
+                            <input type="number" value="${item.stock}" oninput="updateItemField(${i}, 'stock', this.value)" class="w-10 p-1 text-center font-black text-[10px]">
                         </div>
                     </div>
                     <div class="flex items-center justify-between">
                         <div class="flex gap-1">
                             ${['목', '금', '토', '일'].map(d => `
-                                <button onclick="toggleDay(${i}, '${d}')" 
-                                    class="w-6 h-6 rounded text-[8px] font-black border ${item.days.includes(d) ? 'bg-black text-[#FFB800] border-black' : 'bg-white text-gray-300 border-gray-200'}">
-                                    ${d}
-                                </button>
+                                <button onclick="toggleDay(${i}, '${d}')" class="w-6 h-6 rounded text-[8px] font-black border ${item.days.includes(d) ? 'bg-black text-[#FFB800] border-black' : 'bg-white text-gray-300 border-gray-200'}">${d}</button>
                             `).join('')}
                         </div>
-                        <div class="flex items-center gap-2">
-                            <input type="color" value="${item.color}" onchange="window.items[${i}].color=this.value" class="w-5 h-5 cursor-pointer rounded">
-                            <button onclick="window.items.splice(${i}, 1); showSettings();" class="text-red-400 text-xs"><i class="fas fa-trash-alt"></i></button>
-                        </div>
+                        <button onclick="window.items.splice(${i}, 1); showSettings();" class="text-red-400 text-xs"><i class="fas fa-trash-alt"></i></button>
                     </div>
                 </div>
             `).join('');
@@ -565,21 +543,23 @@
         }
 
         async function saveAndReload() {
-            if (!window.currentUser) return;
-            const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
-            await setDoc(settingsDocRef, {
-                items: window.items,
-                currentDay: window.currentDay
-            });
-            closeModal('admin-settings-modal');
+            if (!window.currentUser || !window.db) return;
+            const saveBtn = document.getElementById('admin-save-btn');
+            saveBtn.disabled = true;
+            try {
+                const settingsDocRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'settings');
+                await setDoc(settingsDocRef, { items: window.items, currentDay: window.currentDay });
+                alert("저장되었습니다.");
+                closeModal('admin-settings-modal');
+            } catch (e) { alert("저장 실패"); } finally { saveBtn.disabled = false; }
         }
 
-        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+        function closeModal(id) { 
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('active'); 
+        }
 
-        window.onload = () => {
-            renderWheel();
-            checkParticipation();
-        };
+        window.onload = () => { renderWheel(); checkParticipation(); };
     </script>
 </body>
 </html>
