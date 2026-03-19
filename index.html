@@ -86,7 +86,7 @@
        
        :root {
            --main-yellow: #FFB800;
-           --bg-soft: #FEFDF5;
+           --bg-soft: #FFFBEB; /* 아주 살짝 더 진한 노란색 톤으로 조정 */
            --text-black: #111111;
        }
 
@@ -110,7 +110,7 @@
            justify-content: center;
            gap: 5vh;
            position: relative;
-           background-image: radial-gradient(rgba(255,184,0,0.07) 2.5px, transparent 2.5px);
+           background-image: radial-gradient(rgba(255,184,0,0.1) 2.5px, transparent 2.5px); /* 도트 밀도 소폭 강화 */
            background-size: 60px 60px;
        }
 
@@ -227,7 +227,7 @@
        }
 
        .instruction-text {
-           color: #BBB;
+           color: #999; /* 배경이 진해진 만큼 텍스트 가독성을 위해 살짝 조절 */
            font-weight: 800;
            font-size: min(1.4vw, 20px);
        }
