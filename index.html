@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>유교전 럭키드로우 - 운영 모드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            overflow-x: hidden;
+        }
+
+        .main-yellow { background-color: #FFB800; }
+        
+        #wheel-outer-wrapper {
+            padding-top: 20px;
+            position: relative;
+        }
+
+        #wheel-container {
+            position: relative;
+            width: 320px;
+            height: 320px;
+            margin: 0 auto;
+            filter: drop-shadow(0 25px 50px rgba(0,0,0,0.15));
+        }
+
+        #wheel {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 10px solid #222;
+            position: relative;
+            overflow: hidden;
+            transition: transform 5s cubic-bezier(0.15, 0, 0.15, 1);
+            background: white;
+            z-index: 10;
+        }
+
+        #wheel.spinning {
+            filter: blur(1.5px);
+        }
+
+        .segment {
+            position: absolute;
+            width: 50%;
+            height: 50%;
+            transform-origin: 100% 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            border: 0.5px solid rgba(0,0,0,0.05);
+        }
+
+        .needle {
+            position: absolute;
+            top: -15px; 
+            left: 50%;
+            transform: translateX(-50%);
+            width: 45px;
+            height: 55px;
+            z-index: 50;
+            filter: drop-shadow(0 6px 8px rgba(0,0,0,0.25));
+        }
+
+        .needle.tick {
+            animation: tick-anim 0.12s ease-out;
+        }
+
+        @keyframes tick-anim {
+            0% { transform: translateX(-50%) rotate(0deg); }
+            50% { transform: translateX(-50%) rotate(-18deg); }
+            100% { transform: translateX(-50%) rotate(0deg); }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(15px);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal.active { display: flex; opacity: 1; }
+
+        .modal-content {
+            transform: scale(0.9);
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .modal.active .modal-content { transform: scale(1); }
+
+        .shine {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(135deg, transparent 45%, rgba(255,255,255,0.2) 50%, transparent 55%);
+            background-size: 300% 300%;
+            animation: shine-anim 8s infinite linear;
+            pointer-events: none;
+        }
+
+        @keyframes shine-anim {
+            0% { background-position: 200% 200%; }
+            100% { background-position: -200% -200%; }
+        }
+
+        .admin-day-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 12px;
+            font-weight: 900;
+            font-size: 14px;
+            transition: all 0.2s;
+            border: 2px solid #eee;
+            background: white;
+            color: #ccc;
+        }
+        .admin-day-btn.active {
+            border-color: #FFB800;
+            background: #FFB800;
+            color: white;
+            box-shadow: 0 4px 12px rgba(255,184,0,0.3);
+        }
+    </style>
+</head>
+<body class="p-4 flex flex-col items-center justify-center min-h-screen">
+
+    <div class="w-full max-w-lg bg-white rounded-[4rem] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.3)] overflow-hidden border-[14px] border-[#FFB800] relative">
+        <div class="shine"></div>
+        
+        <!-- 헤더 -->
+        <div class="main-yellow pt-14 pb-12 px-8 text-center relative">
+            <h1 class="text-white text-3xl font-black leading-tight tracking-tight drop-shadow-lg">
+                서울국제유아교육전<br>& 키즈페어
+            </h1>
+            <div class="inline-block mt-4 px-8 py-2.5 bg-black/10 rounded-full border border-white/20 backdrop-blur-sm">
+                <p id="display-day-text" class="text-white text-[13px] font-black tracking-[0.2em] uppercase">LUCKY DRAW EVENT</p>
+            </div>
+        </div>
+
+        <!-- 메인 콘텐츠 -->
+        <div class="p-10 text-center bg-white relative">
+            <div class="mb-6">
+                <p class="text-[#FFB800] text-sm font-black mb-1 tracking-widest uppercase">사전등록자 한정 혜택</p>
+                <h2 class="text-3xl font-black text-gray-800 tracking-tighter">행운의 룰렛을 돌려보세요!</h2>
+            </div>
+
+            <!-- 룰렛 영역 -->
+            <div id="wheel-outer-wrapper">
+                <div id="wheel-container">
+                    <div id="needle" class="needle">
+                        <svg viewBox="0 0 40 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M20 50L40 0H0L20 50Z" fill="#FF4D4D"/>
+                            <circle cx="20" cy="15" r="5" fill="white" fill-opacity="0.3"/>
+                        </svg>
+                    </div>
+                    <div id="wheel" style="transform: rotate(0deg);"></div>
+                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 bg-white rounded-full border-[7px] border-[#222] z-30 shadow-xl flex items-center justify-center">
+                        <div class="w-4 h-4 bg-[#FFB800] rounded-full shadow-inner animate-pulse"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 추첨 버튼 -->
+            <button id="spin-button" onclick="spin()" class="w-full mt-10 main-yellow hover:bg-[#e6a600] text-white text-2xl font-black py-7 rounded-[2.5rem] shadow-[0_12px_0_#D99C00] active:shadow-none active:translate-y-[8px] mb-10 transition-all group relative overflow-hidden">
+                <span class="relative z-10 flex items-center justify-center gap-3">
+                    두근두근 추첨 START!
+                </span>
+                <div class="absolute top-0 -left-full w-full h-full bg-white/30 skew-x-12 transition-all duration-1000 group-hover:left-full"></div>
+            </button>
+
+            <!-- 경품 리스트 -->
+            <div class="text-left bg-gray-50 p-8 rounded-[3rem] border border-gray-100 shadow-inner">
+                <div class="flex items-center mb-6">
+                    <span class="text-2xl mr-3">🎁</span>
+                    <h3 class="font-black text-gray-800 text-lg">경품 리스트</h3>
+                </div>
+                <div id="inventory-list" class="grid grid-cols-1 gap-3"></div>
+            </div>
+        </div>
+        
+        <!-- 푸터 -->
+        <div class="bg-gray-100/50 py-6 px-12 flex justify-between items-center border-t border-gray-100">
+            <p class="text-[11px] text-gray-400 font-bold tracking-wider">© SEOUL EDUCARE Lucky Draw</p>
+            <button onclick="openAdmin()" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-300 hover:text-[#FFB800] transition-all">
+                <i class="fas fa-cog text-sm"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 관리자 로그인 모달 -->
+    <div id="admin-login-modal" class="modal">
+        <div class="modal-content bg-white p-12 rounded-[3.5rem] w-80 shadow-2xl border-4 border-[#FFB800]">
+            <h3 class="font-black text-xl text-center mb-8">관리자 인증</h3>
+            <input type="password" id="admin-pass" class="w-full bg-gray-50 border-2 border-gray-100 p-4 rounded-2xl mb-6 text-center text-3xl tracking-[0.4em] focus:outline-none focus:border-[#FFB800]" placeholder="****">
+            <button onclick="checkAdminPass()" class="w-full main-yellow text-white py-4 rounded-2xl font-black shadow-lg">확인</button>
+        </div>
+    </div>
+
+    <!-- 관리자 설정 모달 -->
+    <div id="admin-settings-modal" class="modal">
+        <div class="modal-content bg-white p-10 rounded-[4rem] w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4 shadow-2xl">
+            <!-- 관리자 전용 요일 선택 -->
+            <div class="mb-10 p-6 bg-gray-50 rounded-[2.5rem] border-2 border-dashed border-gray-200">
+                <h4 class="text-center font-black text-gray-500 text-xs mb-4 uppercase tracking-widest">오늘의 요일 설정 (수동)</h4>
+                <div class="flex gap-2">
+                    <button onclick="changeGlobalDay('목')" id="admin-day-목" class="admin-day-btn">목요일</button>
+                    <button onclick="changeGlobalDay('금')" id="admin-day-금" class="admin-day-btn">금요일</button>
+                    <button onclick="changeGlobalDay('토')" id="admin-day-토" class="admin-day-btn">토요일</button>
+                    <button onclick="changeGlobalDay('일')" id="admin-day-일" class="admin-day-btn">일요일</button>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-6 px-2">
+                <div>
+                    <h3 class="text-2xl font-black">경품 수량 및 활성요일</h3>
+                </div>
+                <button onclick="closeModal('admin-settings-modal')" class="text-gray-300 hover:text-black"><i class="fas fa-times-circle text-3xl"></i></button>
+            </div>
+            
+            <div id="admin-item-list" class="space-y-4"></div>
+
+            <div class="mt-10 flex gap-4 sticky bottom-0 bg-white py-6 border-t">
+                <button onclick="addItem()" class="flex-1 bg-gray-100 py-5 rounded-[1.5rem] font-black hover:bg-gray-200 transition">상품 추가</button>
+                <button onclick="saveAndReload()" class="flex-1 main-yellow text-white py-5 px-4 rounded-[1.5rem] font-black shadow-xl">설정 저장 및 새로고침</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 당첨 모달 -->
+    <div id="win-modal" class="modal">
+        <div class="modal-content bg-white p-10 rounded-[5rem] w-[360px] text-center shadow-2xl border-[12px] border-[#FFB800] relative">
+            <div class="text-7xl mb-6 animate-bounce">✨</div>
+            <h2 class="text-3xl font-black mb-2 leading-tight text-gray-800">축하합니다!</h2>
+            <p class="text-sm font-bold text-gray-400 mb-6">행운의 주인공이 되셨습니다</p>
+            <div class="bg-yellow-50 py-10 rounded-[3rem] border-[4px] border-dashed border-[#FFB800] my-6">
+                <p id="win-item-name" class="text-2xl font-black text-[#E6A600] px-4 leading-snug"></p>
+            </div>
+            <button onclick="closeModal('win-modal')" class="w-full bg-black text-white py-5 rounded-[2.5rem] font-black text-lg shadow-xl active:scale-95 transition-transform">확인</button>
+        </div>
+    </div>
+
+    <script>
+        const DEFAULT_ITEMS = [
+            { id: 1, name: "튼튼영어 베이비리그", stock: 5, color: "#fff4d1", days: ["목", "금", "토", "일"] },
+            { id: 2, name: "그레이트북스 세트", stock: 10, color: "#ffebad", days: ["토", "일"] },
+            { id: 3, name: "아람 전집", stock: 8, color: "#ffe18a", days: ["목", "금"] },
+            { id: 4, name: "키즈에이원 세트", stock: 15, color: "#ffd866", days: ["목", "토"] },
+            { id: 5, name: "매직큐브 큐블로", stock: 20, color: "#ffcf42", days: ["금", "일"] },
+            { id: 6, name: "동아제약 미니막스", stock: 50, color: "#ffc51a", days: ["목", "금", "토", "일"] },
+            { id: 7, name: "참가상", stock: 2000, color: "#f3f4f6", days: ["목", "금", "토", "일"] }
+        ];
+
+        let items = JSON.parse(localStorage.getItem('lucky_draw_v9_items')) || DEFAULT_ITEMS;
+        let currentDay = localStorage.getItem('lucky_draw_v9_day') || "목";
+        let isSpinning = false;
+
+        function changeGlobalDay(day) {
+            currentDay = day;
+            localStorage.setItem('lucky_draw_v9_day', day);
+            updateDayUI(); 
+            renderWheel();
+            document.querySelectorAll('.admin-day-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.id === `admin-day-${day}`);
+            });
+        }
+
+        function updateDayUI() {
+            document.getElementById('display-day-text').innerText = `LUCKY DRAW EVENT`;
+        }
+
+        function renderWheel() {
+            const wheel = document.getElementById('wheel');
+            wheel.innerHTML = '';
+            
+            const activeItems = items.filter(item => item.stock > 0 && item.days.includes(currentDay));
+            const total = activeItems.length;
+            
+            if (total === 0) {
+                wheel.innerHTML = '<div class="flex items-center justify-center h-full text-gray-300 font-black px-10 leading-tight text-center">준비된 상품 소진</div>';
+            } else {
+                const step = 360 / total;
+                activeItems.forEach((item, index) => {
+                    const seg = document.createElement('div');
+                    seg.className = 'segment';
+                    seg.style.backgroundColor = item.color;
+                    seg.style.transform = `rotate(${step * index}deg) skewY(${90 - step}deg)`;
+                    wheel.appendChild(seg);
+                });
+            }
+
+            const invList = document.getElementById('inventory-list');
+            const dayItems = items.filter(item => item.days.includes(currentDay));
+            
+            // "Active" 문구 제거
+            invList.innerHTML = dayItems.map(item => `
+                <div class="flex justify-between items-center py-5 px-8 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                    <span class="text-[14px] font-black ${item.stock <= 0 ? 'line-through text-gray-300' : 'text-gray-700'}">
+                        ${item.name}
+                    </span>
+                    <div class="flex items-center">
+                        ${item.stock <= 0 ? 
+                            '<span class="text-[10px] font-black text-red-400 bg-red-50 px-3 py-1 rounded-full uppercase">Sold Out</span>' : 
+                            ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function spin() {
+            if (isSpinning) return;
+            const activeItems = items.filter(item => item.stock > 0 && item.days.includes(currentDay));
+            if (activeItems.length === 0) return;
+
+            isSpinning = true;
+            const wheel = document.getElementById('wheel');
+            const needle = document.getElementById('needle');
+            const btn = document.getElementById('spin-button');
+            
+            btn.disabled = true;
+            wheel.classList.add('spinning');
+
+            const totalStock = activeItems.reduce((s, i) => s + i.stock, 0);
+            let rand = Math.floor(Math.random() * totalStock);
+            let winner = activeItems[0];
+            let acc = 0;
+            let winnerIdx = 0;
+
+            for (let i = 0; i < activeItems.length; i++) {
+                acc += activeItems[i].stock;
+                if (rand < acc) {
+                    winner = activeItems[i];
+                    winnerIdx = i;
+                    break;
+                }
+            }
+
+            const step = 360 / activeItems.length;
+            const spins = 10 + Math.floor(Math.random() * 5);
+            const rotation = (spins * 360) - (winnerIdx * step) - (step / 2);
+            
+            wheel.style.transform = `rotate(${rotation}deg)`;
+
+            const tickInterval = setInterval(() => {
+                needle.classList.add('tick');
+                setTimeout(() => needle.classList.remove('tick'), 100);
+            }, 250);
+
+            setTimeout(() => {
+                clearInterval(tickInterval);
+                wheel.classList.remove('spinning');
+                confetti({ 
+                    particleCount: 150, spread: 70, origin: { y: 0.6 }, 
+                    colors: ['#FFB800', '#ffffff', '#FF4D4D'], zIndex: 10000 
+                });
+                
+                document.getElementById('win-item-name').innerText = winner.name;
+                document.getElementById('win-modal').classList.add('active');
+                
+                items = items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
+                localStorage.setItem('lucky_draw_v9_items', JSON.stringify(items));
+                
+                setTimeout(() => {
+                    renderWheel();
+                    isSpinning = false;
+                    btn.disabled = false;
+                }, 500);
+            }, 5200);
+        }
+
+        function openAdmin() { 
+            document.getElementById('admin-login-modal').classList.add('active'); 
+            document.getElementById('admin-pass').focus();
+        }
+
+        function checkAdminPass() {
+            if (document.getElementById('admin-pass').value === '8887') {
+                closeModal('admin-login-modal');
+                document.getElementById('admin-pass').value = '';
+                showSettings();
+            } else { alert('비밀번호가 다릅니다.'); }
+        }
+
+        function toggleDay(idx, day) {
+            const currentDays = items[idx].days;
+            if (currentDays.includes(day)) {
+                items[idx].days = currentDays.filter(d => d !== day);
+            } else {
+                items[idx].days.push(day);
+            }
+            showSettings();
+        }
+
+        function showSettings() {
+            document.querySelectorAll('.admin-day-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.id === `admin-day-${currentDay}`);
+            });
+
+            const list = document.getElementById('admin-item-list');
+            list.innerHTML = items.map((item, i) => `
+                <div class="p-6 bg-gray-50 rounded-3xl border border-gray-200">
+                    <div class="flex gap-3 mb-4">
+                        <input type="text" value="${item.name}" onchange="items[${i}].name=this.value" class="flex-1 p-3 rounded-xl border font-bold text-sm" placeholder="상품명">
+                        <div class="flex items-center gap-1 bg-white border rounded-xl px-3">
+                            <span class="text-[10px] font-black text-gray-300">잔여</span>
+                            <input type="number" value="${item.stock}" onchange="items[${i}].stock=parseInt(this.value)" class="w-16 p-2 text-center font-black text-sm outline-none">
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex gap-1 items-center">
+                            <span class="text-[10px] font-black text-gray-400 mr-2 uppercase">배정 요일</span>
+                            ${['목', '금', '토', '일'].map(d => `
+                                <button onclick="toggleDay(${i}, '${d}')" 
+                                    class="w-8 h-8 rounded-lg text-xs font-black transition-all border ${item.days.includes(d) ? 'bg-black text-[#FFB800] border-black' : 'bg-white text-gray-300 border-gray-200'}">
+                                    ${d}
+                                </button>
+                            `).join('')}
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <input type="color" value="${item.color}" onchange="items[${i}].color=this.value" class="w-8 h-8 cursor-pointer rounded-lg">
+                            <button onclick="items.splice(${i}, 1); showSettings();" class="text-red-400 hover:text-red-600"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('admin-settings-modal').classList.add('active');
+        }
+
+        function addItem() {
+            items.push({ id: Date.now(), name: "신규 상품", stock: 10, color: "#ffffff", days: [currentDay] });
+            showSettings();
+        }
+
+        function saveAndReload() {
+            localStorage.setItem('lucky_draw_v9_items', JSON.stringify(items));
+            localStorage.setItem('lucky_draw_v9_day', currentDay);
+            location.reload();
+        }
+
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+        window.onload = () => {
+            updateDayUI();
+            renderWheel();
+        };
+    </script>
+</body>
+</html>
