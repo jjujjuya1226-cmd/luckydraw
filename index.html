@@ -9,7 +9,7 @@
    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
    
    <script>
-       // 기본 데이터 (로직용) - '다음 기회에' -> '행운의 참가상'으로 변경
+       // 기본 데이터 (로직용) - '행운의 참가상' 포함
        const DEFAULT_ITEMS = [
            { id: 1, name: "튼튼영어 베이비리그", stock: 5, days: ["목", "금", "토", "일"] },
            { id: 2, name: "그레이트북스 세트", stock: 10, days: ["토", "일"] },
@@ -119,19 +119,6 @@
            z-index: 10;
        }
 
-       .event-badge {
-           display: inline-block;
-           background-color: var(--text-black);
-           color: white;
-           padding: 1.2vh 3.5vw;
-           border-radius: 100px;
-           font-size: min(1.8vw, 24px);
-           font-weight: 800;
-           letter-spacing: 0.1em;
-           margin-bottom: 2vh;
-           box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-       }
-
        .top-header h1 {
            font-size: min(4.8vw, 72px);
            font-weight: 900;
@@ -146,18 +133,18 @@
            font-weight: 800;
            color: var(--main-yellow);
            background: white;
-           padding: 0.8vh 2.5vw;
+           padding: 1.2vh 3vw;
            border-radius: 15px;
            display: inline-block;
            box-shadow: 0 5px 20px rgba(0,0,0,0.06);
            border: 2px solid rgba(255, 184, 0, 0.3);
+           word-break: keep-all;
        }
 
-       /* 룰렛 정원 유지를 위한 aspect-ratio 적용 */
        #wheel-container {
            position: relative;
            width: min(65vh, 85vw); 
-           aspect-ratio: 1 / 1; /* 가로세로 비율 고정 */
+           aspect-ratio: 1 / 1;
            filter: drop-shadow(0 40px 100px rgba(0,0,0,0.18));
        }
 
@@ -310,9 +297,8 @@
        </div>
 
        <div class="top-header">
-           <div class="event-badge">서울국제유아교육전&키즈페어</div>
            <h1>행운 가득! 럭키드로우 이벤트</h1>
-           <p class="sub-info">사전등록자 한정 혜택 (1인 1회 참여)</p>
+           <p class="sub-info">유교전 사전등록자 한정 혜택 (1인 1회 참여)</p>
        </div>
 
        <div id="wheel-container">
@@ -351,7 +337,6 @@
        </div>
    </div>
 
-   <!-- 결과 안내 오버레이 -->
    <div id="result-overlay" class="result-overlay" onclick="closeResult()">
        <div class="text-[min(12vh,140px)] mb-2 animate-bounce">🎊</div>
        <h2 class="text-[min(6vh,72px)] font-black text-black mb-6">당첨을 축하드립니다!</h2>
