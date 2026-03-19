@@ -167,6 +167,20 @@
             position: relative;
             box-shadow: 0 20px 40px -10px rgba(0,0,0,0.15);
         }
+
+        /* 경품 리스트 스크롤 영역 추가 */
+        #inventory-list-container {
+            max-height: 180px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        #inventory-list-container::-webkit-scrollbar {
+            width: 4px;
+        }
+        #inventory-list-container::-webkit-scrollbar-thumb {
+            background-color: #FFB800;
+            border-radius: 10px;
+        }
     </style>
 </head>
 <body class="p-2 sm:p-4 flex flex-col items-center justify-center min-h-screen">
@@ -214,13 +228,15 @@
                 <div class="absolute top-0 -left-full w-full h-full bg-white/20 skew-x-12 transition-all duration-1000 group-hover:left-full"></div>
             </button>
 
-            <!-- 경품 리스트 -->
+            <!-- 경품 리스트 (모바일 다 안보이는 문제 해결을 위한 스크롤 컨테이너) -->
             <div class="text-left bg-gray-50 p-4 sm:p-5 rounded-2xl border border-gray-100 shadow-inner">
                 <div class="flex items-center mb-3">
                     <span class="text-lg mr-2">🎁</span>
                     <h3 class="font-black text-gray-800 text-sm sm:text-base">경품 리스트</h3>
                 </div>
-                <div id="inventory-list" class="grid grid-cols-1 gap-2"></div>
+                <div id="inventory-list-container">
+                    <div id="inventory-list" class="grid grid-cols-1 gap-2"></div>
+                </div>
             </div>
         </div>
         
@@ -365,7 +381,9 @@
                     <span class="text-[12px] font-black text-gray-700">
                         ${item.name}
                     </span>
-                    <div class="flex items-center"></div>
+                    <div class="flex items-center">
+                        <span class="text-[10px] text-gray-400 font-bold">${item.stock > 0 ? '잔여 ' + item.stock : '품절'}</span>
+                    </div>
                 </div>
             `).join('');
         }
