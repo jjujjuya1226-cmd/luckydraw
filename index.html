@@ -134,9 +134,8 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start; 
-            padding-top: 10vh; 
-            gap: 4vh;
+            justify-content: space-between; /* 전체 간격 균등 분배 */
+            padding: 8vh 0 12vh 0; /* 상단과 하단 여백 설정 */
             position: relative;
             z-index: 1;
             background-image: radial-gradient(rgba(255,184,0,0.05) 1.5px, transparent 1.5px);
@@ -173,9 +172,10 @@
 
         #wheel-container {
             position: relative;
-            width: min(58vh, 80vw); 
+            width: min(58vh, 75vw); 
             aspect-ratio: 1 / 1;
             filter: drop-shadow(0 40px 100px rgba(0,0,0,0.15));
+            margin: 2vh 0;
         }
 
         #wheel {
@@ -258,11 +258,14 @@
             pointer-events: none;
         }
 
+        .bottom-info {
+            z-index: 10;
+        }
+
         .instruction-text {
             color: #AAA; 
             font-weight: 700;
-            font-size: min(1.4vw, 18px);
-            margin-top: 2vh;
+            font-size: min(1.4vw, 20px);
         }
 
         .result-overlay {
@@ -314,7 +317,8 @@
         </div>
 
         <div class="top-header">
-            <h1>행운 가득! 럭키드로우</h1>
+            <!-- 요청하신 '이벤트' 문구 추가 -->
+            <h1>행운 가득! 럭키드로우 이벤트</h1>
             <p class="sub-info">유교전 사전등록자 한정 (1인 1회 참여)</p>
         </div>
 
@@ -326,7 +330,6 @@
             </div>
             
             <div class="center-cap">
-                <!-- 요청하신 대로 텍스트 수정 -->
                 <button id="spin-btn" onclick="spin()" class="spin-btn">경품추첨<br>START!</button>
             </div>
 
@@ -336,6 +339,7 @@
         </div>
 
         <div class="bottom-info">
+            <!-- 위치를 더 위로 올리기 위해 padding-bottom이 포함된 부모 컨테이너 내부에 배치 -->
             <div class="instruction-text">START 버튼을 눌러 행운을 확인하세요!</div>
         </div>
     </div>
