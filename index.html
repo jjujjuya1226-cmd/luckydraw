@@ -196,7 +196,7 @@
                 <div class="absolute top-0 -left-full w-full h-full bg-white/20 skew-x-12 transition-all duration-1000 group-hover:left-full"></div>
             </button>
 
-            <!-- 경품 리스트: 패딩 및 폰트 사이즈 조정 -->
+            <!-- 경품 리스트: 요일/솔드아웃 무관하게 전체 리스트 노출 -->
             <div class="text-left bg-gray-50 p-4 sm:p-5 rounded-2xl border border-gray-100 shadow-inner">
                 <div class="flex items-center mb-3">
                     <span class="text-lg mr-2">🎁</span>
@@ -297,6 +297,7 @@
             const wheel = document.getElementById('wheel');
             wheel.innerHTML = '';
             
+            // 룰렛은 여전히 재고와 요일을 따름
             const activeItems = items.filter(item => item.stock > 0 && item.days.includes(currentDay));
             const total = activeItems.length;
             
@@ -314,17 +315,15 @@
             }
 
             const invList = document.getElementById('inventory-list');
-            const dayItems = items.filter(item => item.days.includes(currentDay));
             
-            invList.innerHTML = dayItems.map(item => `
+            // 관람객 화면 리스트: 요일/재고와 관계없이 관리자 페이지에 등록된 모든 경품 노출
+            invList.innerHTML = items.map(item => `
                 <div class="flex justify-between items-center py-3 px-5 bg-white rounded-lg border border-gray-100 shadow-sm">
-                    <span class="text-[12px] font-black ${item.stock <= 0 ? 'line-through text-gray-300' : 'text-gray-700'}">
+                    <span class="text-[12px] font-black text-gray-700">
                         ${item.name}
                     </span>
                     <div class="flex items-center">
-                        ${item.stock <= 0 ? 
-                            '<span class="text-[8px] font-black text-red-400 bg-red-50 px-2 py-0.5 rounded-full uppercase">Sold Out</span>' : 
-                            ''}
+                        <!-- 솔드아웃 표시 제거됨 -->
                     </div>
                 </div>
             `).join('');
