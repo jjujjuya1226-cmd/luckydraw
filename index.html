@@ -3,95 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>유교전 현장 추첨 시스템</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    
+    <title>베이비페어 럭키드로우</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap">
+
     <script>
         // 기본 데이터 (로직용) - '행운의 참가상' 포함
+        // weight: 당첨 확률 가중치 (재고와 별개, 상대값). stock: 남은 재고(0이면 추첨 대상에서 자동 제외)
         const DEFAULT_ITEMS = [
-            { id: 1, name: "튼튼영어 베이비리그", stock: 5, days: ["목", "금", "토", "일"] },
-            { id: 2, name: "그레이트북스 세트", stock: 10, days: ["토", "일"] },
-            { id: 3, name: "아람 전집", stock: 8, days: ["목", "금"] },
-            { id: 4, name: "키즈에이원 세트", stock: 15, days: ["목", "토"] },
-            { id: 5, name: "매직큐브 큐블로", stock: 20, days: ["금", "일"] },
-            { id: 6, name: "동아제약 미니막스", stock: 50, days: ["목", "금", "토", "일"] },
-            { id: 7, name: "행운의 참가상", stock: 9999, days: ["목", "금", "토", "일"] }
+            { id: 1, name: "튼튼영어 베이비리그", stock: 5, weight: 5 },
+            { id: 2, name: "그레이트북스 세트", stock: 10, weight: 10 },
+            { id: 3, name: "아람 전집", stock: 8, weight: 8 },
+            { id: 4, name: "키즈에이원 세트", stock: 15, weight: 15 },
+            { id: 5, name: "매직큐브 큐블로", stock: 20, weight: 20 },
+            { id: 6, name: "동아제약 미니막스", stock: 50, weight: 50 },
+            { id: 7, name: "행운의 참가상", stock: 9999, weight: 9999 }
         ];
 
-        const WHEEL_DESIGN_COLORS = ["#FFB800", "#FFD600", "#FFE082", "#FFF176", "#FFB800", "#FFD600", "#FFE082", "#FFF176"];
+        const WHEEL_DESIGN_COLORS = ["#DD3E78", "#FF6FA5", "#FFB6CE", "#FFE3ED", "#DD3E78", "#FF6FA5", "#FFB6CE", "#FFE3ED"];
+        const SPIN_DURATION_OPTIONS = [0.3, 0.5, 0.7, 1, 2, 3];
 
-        window.items = DEFAULT_ITEMS;
-        window.currentDay = "목";
-        window.isFirebaseReady = false;
+        const STORAGE_KEY = "luckydraw_data_v1";
+
+        function loadFromStorage() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return null;
+                const data = JSON.parse(raw);
+                if (!data || !Array.isArray(data.items)) return null;
+                // 이전 버전 데이터에 weight가 없으면 stock 값으로 보정
+                data.items = data.items.map(it => ({ ...it, weight: (typeof it.weight === 'number') ? it.weight : it.stock }));
+                return data;
+            } catch (e) {
+                console.warn('저장된 데이터를 불러오지 못했습니다.', e);
+                return null;
+            }
+        }
+
+        function persist() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ items: window.items, spinDuration: window.spinDuration }));
+        }
+
+        const saved = loadFromStorage();
+        window.items = saved ? saved.items : DEFAULT_ITEMS;
+        window.spinDuration = (saved && typeof saved.spinDuration === 'number' && saved.spinDuration > 0) ? saved.spinDuration : 0.5;
         let isSpinning = false;
-        let currentRotation = 0; 
-    </script>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        let firebaseConfig = null;
-        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-            firebaseConfig = JSON.parse(__firebase_config);
-        }
-
-        if (firebaseConfig) {
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            const db = getFirestore(app);
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'educare-pc-station-v3';
-
-            window.db = db;
-            window.appId = appId;
-            window.fsDoc = doc;
-            window.fsUpdateDoc = updateDoc;
-            window.fsSetDoc = setDoc;
-
-            const initAuth = async () => {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            };
-            initAuth();
-
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    window.isFirebaseReady = true;
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'data');
-                    onSnapshot(docRef, (snap) => {
-                        if (snap.exists()) {
-                            const data = snap.data();
-                            window.items = data.items || DEFAULT_ITEMS;
-                            window.currentDay = data.currentDay || "목";
-                        } else {
-                            setDoc(docRef, { items: DEFAULT_ITEMS, currentDay: "목" });
-                        }
-                        renderAdminList();
-                    });
-                }
-            });
-        } else {
-            window.onload = () => { renderAdminList(); };
-        }
+        let currentRotation = 0;
     </script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
-        
         :root {
-            --main-yellow: #FFB800;
-            --bg-soft: #FFFDF0; 
+            --main-pink: #DD3E78;
+            --pink-dark: #B72F5F;
+            --pink-light: #FFE3ED;
+            --bg-soft: #FFF6F9;
             --text-black: #111111;
+            --gray-50: #F9FAFB;
+            --gray-100: #F3F4F6;
+            --gray-200: #E5E7EB;
+            --gray-300: #D1D5DB;
+            --gray-400: #9CA3AF;
+            --red-500: #EF4444;
         }
+
+        * { box-sizing: border-box; }
 
         body {
             font-family: 'Pretendard', sans-serif;
+            font-weight: 700;
             background-color: var(--bg-soft);
             color: var(--text-black);
             margin: 0;
@@ -102,7 +80,7 @@
             width: 100vw;
         }
 
-        /* 클로버 배경 애니메이션 */
+        /* 하트 배경 애니메이션 */
         .bg-clover-container {
             position: fixed;
             top: 0;
@@ -117,15 +95,14 @@
         .clover {
             position: absolute;
             bottom: -50px;
-            color: #4ADE80; 
-            opacity: 0.15;
+            opacity: 0.18;
             animation: floatUp 15s linear infinite;
         }
 
         @keyframes floatUp {
             0% { transform: translateY(0) rotate(0deg); opacity: 0; }
-            10% { opacity: 0.15; }
-            90% { opacity: 0.15; }
+            10% { opacity: 0.18; }
+            90% { opacity: 0.18; }
             100% { transform: translateY(-110vh) rotate(360deg); opacity: 0; }
         }
 
@@ -138,7 +115,7 @@
             padding: 8vh 0 12vh 0; /* 상단과 하단 여백 설정 */
             position: relative;
             z-index: 1;
-            background-image: radial-gradient(rgba(255,184,0,0.05) 1.5px, transparent 1.5px);
+            background-image: radial-gradient(rgba(221,62,120,0.06) 1.5px, transparent 1.5px);
             background-size: 40px 40px;
         }
 
@@ -151,28 +128,29 @@
             font-size: min(4.5vw, 68px);
             font-weight: 900;
             line-height: 1.1;
-            margin-bottom: 2.5vh;
+            margin: 0 0 2.5vh 0;
             color: #111;
             word-break: keep-all;
+            text-wrap: balance;
             text-shadow: 0 4px 10px rgba(0,0,0,0.05);
         }
 
         .sub-info {
             font-size: min(1.6vw, 24px);
             font-weight: 800;
-            color: #EAB308;
+            color: var(--main-pink);
             background: white;
             padding: 1.2vh 3vw;
             border-radius: 100px;
             display: inline-block;
             box-shadow: 0 10px 30px rgba(0,0,0,0.04);
-            border: 2px solid rgba(255, 184, 0, 0.2);
+            border: 2px solid rgba(221, 62, 120, 0.25);
             word-break: keep-all;
         }
 
         #wheel-container {
             position: relative;
-            width: min(58vh, 75vw); 
+            width: min(58vh, 75vw);
             aspect-ratio: 1 / 1;
             filter: drop-shadow(0 40px 100px rgba(0,0,0,0.15));
             margin: 2vh 0;
@@ -226,8 +204,8 @@
         }
 
         .spin-btn {
-            background-color: var(--main-yellow);
-            color: var(--text-black);
+            background-color: var(--main-pink);
+            color: #FFFFFF;
             font-weight: 900;
             font-size: min(2.0vh, 20px);
             width: 13.5vh;
@@ -240,11 +218,12 @@
             line-height: 1.2;
             padding: 10px;
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            box-shadow: 0 10px 20px rgba(255, 184, 0, 0.3);
+            box-shadow: 0 10px 20px rgba(221, 62, 120, 0.4);
             cursor: pointer;
             border: none;
             word-break: keep-all;
             z-index: 160;
+            font-family: inherit;
         }
 
         .spin-btn:hover:not(:disabled) {
@@ -263,28 +242,9 @@
         }
 
         .instruction-text {
-            color: #AAA; 
+            color: #AAA;
             font-weight: 700;
             font-size: min(1.4vw, 20px);
-        }
-
-        .result-overlay {
-             display: none;
-             position: fixed;
-             top: 0; left: 0; width: 100%; height: 100%;
-             background: rgba(255, 184, 0, 0.98);
-             z-index: 10000;
-             flex-direction: column;
-             justify-content: center;
-             align-items: center;
-             text-align: center;
-             padding: 20px;
-        }
-        .result-overlay.active { display: flex; animation: winShow 0.5s cubic-bezier(0.19, 1, 0.22, 1); }
-
-        @keyframes winShow {
-            from { opacity: 0; transform: scale(0.7); }
-            to { opacity: 1; transform: scale(1); }
         }
 
         .admin-trigger {
@@ -299,27 +259,343 @@
             align-items: center;
             justify-content: center;
             border-radius: 12px;
-            font-size: 22px;
             cursor: pointer;
             z-index: 100;
             transition: all 0.3s ease;
+            border: none;
+            padding: 0;
+        }
+        .admin-trigger:hover { background: rgba(0,0,0,0.06); }
+        .admin-trigger svg { width: 22px; height: 22px; }
+
+        /* 결과 오버레이 */
+        .result-overlay {
+             display: none;
+             position: fixed;
+             top: 0; left: 0; width: 100%; height: 100%;
+             background: rgba(221, 62, 120, 0.98);
+             z-index: 10000;
+             flex-direction: column;
+             justify-content: center;
+             align-items: center;
+             text-align: center;
+             padding: 20px;
+             border: none;
+             cursor: pointer;
+        }
+        .result-overlay.active { display: flex; animation: winShow 0.5s cubic-bezier(0.19, 1, 0.22, 1); }
+
+        @keyframes winShow {
+            from { opacity: 0; transform: scale(0.7); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes gentleBounce {
+            0%, 100% { transform: translateY(-18%); }
+            50% { transform: translateY(0); }
+        }
+
+        .result-emoji {
+            font-size: min(10vh, 120px);
+            margin-bottom: 8px;
+            animation: gentleBounce 1s infinite;
+        }
+        .congrats-title {
+            font-size: min(5vh, 60px);
+            font-weight: 900;
+            color: white;
+            margin: 0 0 24px 0;
+        }
+        .result-card {
+            background: white;
+            padding: 48px 64px;
+            border-radius: 50px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.35);
+            margin-bottom: 40px;
+            transform: scale(1.05);
+            border: 8px solid black;
+            max-width: 85vw;
+        }
+        .win-item-name {
+            font-size: min(8vh, 90px);
+            font-weight: 900;
+            color: black;
+            line-height: 1.25;
+            word-break: keep-all;
+            margin: 0;
+        }
+        .result-hint {
+            font-size: min(2.5vh, 26px);
+            font-weight: 700;
+            color: white;
+            opacity: 0.7;
+            margin: 0;
+        }
+
+        /* 모달 공통 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            border: none;
+            padding: 0;
+        }
+        .modal-overlay.open { display: flex; }
+
+        .modal-panel-sm {
+            background: white;
+            padding: 40px;
+            border-radius: 24px;
+            width: 360px;
+            max-width: 90vw;
+            text-align: center;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.35);
+        }
+        .modal-panel-lg {
+            background: white;
+            width: min(90%, 720px);
+            max-height: 85vh;
+            border-radius: 24px;
+            padding: 32px;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.35);
+        }
+        .modal-title-sm {
+            font-weight: 900;
+            font-size: 20px;
+            margin: 0 0 24px 0;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .modal-title-lg {
+            font-weight: 900;
+            font-size: 24px;
+            margin: 0;
+        }
+        .modal-close-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--gray-400);
+            padding: 4px;
+            display: flex;
+        }
+        .modal-close-btn svg { width: 20px; height: 20px; }
+
+        .pin-input {
+            width: 100%;
+            background: var(--gray-50);
+            border: 2px solid var(--gray-100);
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 20px;
+            outline: none;
+            font-family: inherit;
+            color: inherit;
+        }
+        .pin-input:focus { border-color: var(--main-pink); }
+
+        .btn-block {
+            width: 100%;
+            padding: 16px;
+            border-radius: 12px;
+            font-weight: 900;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 16px;
+        }
+        .btn-dark { background: black; color: white; }
+        .btn-link-muted {
+            width: 100%;
+            margin-top: 16px;
+            background: none;
+            border: none;
+            color: var(--gray-400);
+            font-size: 14px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .settings-section { margin-bottom: 24px; }
+        .field-label {
+            display: block;
+            font-size: 10px;
+            font-weight: 900;
+            color: var(--gray-400);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .duration-btn-list { display: flex; gap: 8px; }
+
+        .info-banner {
+            margin-bottom: 16px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            background: var(--pink-light);
+            color: var(--pink-dark);
+            padding: 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .info-banner svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; }
+
+        .admin-item-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+        .admin-item {
+            padding: 16px;
+            background: var(--gray-50);
+            border-radius: 16px;
+            border: 1px solid var(--gray-100);
+        }
+        .admin-item-row { display: flex; gap: 12px; align-items: center; }
+        .admin-item-name-input {
+            flex: 1;
+            background: white;
+            border: 1px solid var(--gray-200);
+            padding: 8px;
+            border-radius: 8px;
+            font-weight: 700;
+            outline: none;
+            font-size: 14px;
+            font-family: inherit;
+            color: inherit;
+            min-width: 0;
+        }
+        .admin-item-field { display: flex; flex-direction: column; align-items: center; }
+        .admin-item-field-label { font-size: 9px; font-weight: 900; color: var(--gray-400); }
+        .admin-item-field-input {
+            width: 64px;
+            background: white;
+            border: 1px solid var(--gray-200);
+            padding: 8px;
+            border-radius: 8px;
+            font-weight: 700;
+            text-align: center;
+            outline: none;
+            font-size: 14px;
+            font-family: inherit;
+            color: inherit;
+        }
+        .admin-item-delete-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--gray-300);
+            padding: 4px;
+            display: flex;
+            flex-shrink: 0;
+        }
+        .admin-item-delete-btn:hover { color: var(--red-500); }
+        .admin-item-delete-btn svg { width: 18px; height: 18px; }
+
+        .btn-add-item {
+            width: 100%;
+            background: var(--gray-50);
+            padding: 12px;
+            margin-bottom: 16px;
+            border-radius: 12px;
+            font-weight: 700;
+            color: var(--gray-400);
+            border: 1px dashed var(--gray-200);
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        .btn-save {
+            width: 100%;
+            background: var(--main-pink);
+            color: white;
+            padding: 16px;
+            border-radius: 16px;
+            font-weight: 900;
+            font-size: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .prob-badge {
+            font-weight: 900;
+            font-size: 11px;
+            color: var(--main-pink);
+            background: var(--pink-light);
+            padding: 2px 8px;
+            border-radius: 100px;
+            white-space: nowrap;
+        }
+        .prob-badge.inactive {
+            color: var(--gray-400);
+            background: var(--gray-100);
+        }
+
+        .duration-btn {
+            text-align: center;
+            padding: 12px 0;
+            border-radius: 10px;
+            font-weight: 800;
+            cursor: pointer;
+            flex: 1;
+            background: var(--gray-100);
+            color: #999;
+            font-size: 14px;
+            transition: all 0.15s ease;
+        }
+        .duration-btn.active {
+            background: var(--main-pink);
+            color: white;
+        }
+
+        .toast-msg {
+            position: fixed;
+            left: 50%;
+            bottom: 6vh;
+            transform: translateX(-50%);
+            background: #111;
+            color: #fff;
+            font-weight: 800;
+            font-size: 15px;
+            padding: 14px 28px;
+            border-radius: 100px;
+            z-index: 20000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.25s;
+            pointer-events: none;
+            text-align: center;
+            max-width: 80vw;
         }
     </style>
 </head>
 <body>
 
-    <!-- 클로버 배경 -->
+    <!-- 하트 배경 -->
     <div id="bg-clovers" class="bg-clover-container"></div>
 
     <div class="pc-layout">
-        <div onclick="openAdmin()" class="admin-trigger" title="설정">
-            <i class="fas fa-cog"></i>
-        </div>
+        <button type="button" onclick="openAdmin()" class="admin-trigger" title="설정" aria-label="관리자 설정">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82V15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>
+        </button>
 
         <div class="top-header">
-            <!-- 요청하신 '이벤트' 문구 추가 -->
             <h1>행운 가득! 럭키드로우 이벤트</h1>
-            <p class="sub-info">유교전 사전등록자 한정 (1인 1회 참여)</p>
+            <p class="sub-info">인천베이비&키즈페어 사전등록자 한정 (1인 1회 참여)</p>
         </div>
 
         <div id="wheel-container">
@@ -328,7 +604,7 @@
                     <path d="M20 55L40 0H0L20 55Z"/>
                 </svg>
             </div>
-            
+
             <div class="center-cap">
                 <button id="spin-btn" onclick="spin()" class="spin-btn">경품추첨<br>START!</button>
             </div>
@@ -339,58 +615,67 @@
         </div>
 
         <div class="bottom-info">
-            <!-- 위치를 더 위로 올리기 위해 padding-bottom이 포함된 부모 컨테이너 내부에 배치 -->
             <div class="instruction-text">START 버튼을 눌러 행운을 확인하세요!</div>
         </div>
     </div>
 
-    <div id="result-overlay" class="result-overlay" onclick="closeResult()">
-        <div class="text-[min(10vh,120px)] mb-2 animate-bounce">🍀</div>
-        <h2 class="text-[min(5vh,60px)] font-black text-black mb-6">축하합니다!</h2>
-        <div class="bg-white px-16 py-12 rounded-[50px] shadow-2xl mb-10 transform scale-105 border-[8px] border-black max-w-[85vw]">
-            <p id="win-item-name" class="text-[min(8vh,90px)] font-black text-black leading-tight break-keep"></p>
+    <div id="result-overlay" class="result-overlay" onclick="closeResult()" role="button" tabindex="-1" aria-label="닫기">
+        <div class="result-emoji">💗</div>
+        <h2 class="congrats-title">축하합니다!</h2>
+        <div class="result-card">
+            <p id="win-item-name" class="win-item-name"></p>
         </div>
-        <p class="text-[min(2.5vh,26px)] font-bold text-black opacity-40">화면을 클릭하면 창이 닫힙니다.</p>
+        <p class="result-hint">화면을 클릭하면 창이 닫힙니다.</p>
     </div>
 
     <!-- Modals -->
-    <div id="admin-login-modal" class="modal fixed inset-0 bg-black/80 backdrop-blur-md hidden items-center justify-center z-[9999]">
-        <div class="bg-white p-10 rounded-3xl w-[360px] text-center shadow-2xl">
-            <h3 class="font-black text-xl mb-6">관리자 인증</h3>
-            <input type="password" id="admin-pass" class="w-full bg-gray-50 border-2 border-gray-100 p-4 rounded-xl mb-6 text-center font-bold text-xl outline-none focus:border-[var(--main-yellow)]" placeholder="PIN CODE">
-            <button onclick="checkAdminPass()" class="w-full bg-black text-white py-4 rounded-xl font-black">확인</button>
-            <button onclick="closeModal('admin-login-modal')" class="w-full mt-4 text-gray-400 text-sm">취소</button>
+    <div id="admin-login-modal" class="modal-overlay">
+        <div class="modal-panel-sm">
+            <h3 class="modal-title-sm">관리자 인증</h3>
+            <input type="password" id="admin-pass" class="pin-input" placeholder="PIN CODE">
+            <button type="button" onclick="checkAdminPass()" class="btn-block btn-dark">확인</button>
+            <button type="button" onclick="closeModal('admin-login-modal')" class="btn-link-muted">취소</button>
         </div>
     </div>
 
-    <div id="admin-settings-modal" class="modal fixed inset-0 bg-black/80 backdrop-blur-md hidden items-center justify-center z-[9999]">
-        <div class="bg-white w-[min(90%,700px)] max-h-[85vh] rounded-3xl p-8 overflow-y-auto">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="font-black text-2xl">운영 설정</h3>
-                <button onclick="closeModal('admin-settings-modal')"><i class="fas fa-times text-xl text-gray-400"></i></button>
+    <div id="admin-settings-modal" class="modal-overlay">
+        <div class="modal-panel-lg">
+            <div class="modal-header">
+                <h3 class="modal-title-lg">운영 설정</h3>
+                <button type="button" class="modal-close-btn" onclick="closeModal('admin-settings-modal')" aria-label="닫기">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
             </div>
-            <div class="mb-6">
-                <label class="block text-[10px] font-black text-gray-400 mb-2 uppercase">운영 요일</label>
-                <div class="flex gap-2">
-                    <div onclick="changeGlobalDay('목')" id="day-목" class="day-btn text-center p-3 rounded-lg font-bold cursor-pointer flex-1 bg-gray-100 text-sm">목요일</div>
-                    <div onclick="changeGlobalDay('금')" id="day-금" class="day-btn text-center p-3 rounded-lg font-bold cursor-pointer flex-1 bg-gray-100 text-sm">금요일</div>
-                    <div onclick="changeGlobalDay('토')" id="day-토" class="day-btn text-center p-3 rounded-lg font-bold cursor-pointer flex-1 bg-gray-100 text-sm">토요일</div>
-                    <div onclick="changeGlobalDay('일')" id="day-일" class="day-btn text-center p-3 rounded-lg font-bold cursor-pointer flex-1 bg-gray-100 text-sm">일요일</div>
-                </div>
+            <div class="settings-section">
+                <label class="field-label">룰렛 회전 시간</label>
+                <div id="duration-btn-list" class="duration-btn-list"></div>
             </div>
-            <div id="admin-item-list" class="space-y-3 mb-6"></div>
-            <button onclick="addItem()" class="w-full bg-gray-50 py-3 mb-4 rounded-xl font-bold text-gray-400 border border-dashed border-gray-200">+ 경품 추가</button>
-            <button onclick="saveData()" class="w-full bg-[var(--main-yellow)] py-4 rounded-2xl font-black text-xl shadow-lg">저장 및 적용</button>
+            <div class="info-banner">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                <span>확률(%)은 재고가 있는 상품끼리 "확률 가중치"를 상대 비교하여 자동 계산됩니다. 재고가 0이 되면 자동으로 추첨 대상에서 제외됩니다.</span>
+            </div>
+            <div id="admin-item-list" class="admin-item-list"></div>
+            <button type="button" onclick="addItem()" class="btn-add-item">+ 경품 추가</button>
+            <button type="button" onclick="saveData()" class="btn-save">저장 및 적용</button>
         </div>
     </div>
+
+    <script>
+        /*!
+         * canvas-confetti v1.6.0 (MIT License) - https://github.com/catdad/canvas-confetti
+         * Inlined so this page has no external script dependency.
+         */
+        !function(t,e){!function t(e,n,a,i){var o=!!(e.Worker&&e.Blob&&e.Promise&&e.OffscreenCanvas&&e.OffscreenCanvasRenderingContext2D&&e.HTMLCanvasElement&&e.HTMLCanvasElement.prototype.transferControlToOffscreen&&e.URL&&e.URL.createObjectURL);function r(){}function l(t){var a=n.exports.Promise,i=void 0!==a?a:e.Promise;return"function"==typeof i?new i(t):(t(r,r),null)}var c,s,u,h,f,d,m,g,b,v=(u=Math.floor(1e3/60),h={},f=0,"function"==typeof requestAnimationFrame&&"function"==typeof cancelAnimationFrame?(c=function(t){var e=Math.random();return h[e]=requestAnimationFrame((function n(a){f===a||f+u-1<a?(f=a,delete h[e],t()):h[e]=requestAnimationFrame(n)})),e},s=function(t){h[t]&&cancelAnimationFrame(h[t])}):(c=function(t){return setTimeout(t,u)},s=function(t){return clearTimeout(t)}),{frame:c,cancel:s}),M=(g={},function(){if(d)return d;if(!a&&o){var e=["var CONFETTI, SIZE = {}, module = {};","("+t.toString()+")(this, module, true, SIZE);","onmessage = function(msg) {","  if (msg.data.options) {","    CONFETTI(msg.data.options).then(function () {","      if (msg.data.callback) {","        postMessage({ callback: msg.data.callback });","      }","    });","  } else if (msg.data.reset) {","    CONFETTI && CONFETTI.reset();","  } else if (msg.data.resize) {","    SIZE.width = msg.data.resize.width;","    SIZE.height = msg.data.resize.height;","  } else if (msg.data.canvas) {","    SIZE.width = msg.data.canvas.width;","    SIZE.height = msg.data.canvas.height;","    CONFETTI = module.exports.create(msg.data.canvas);","  }","}"].join("\n");try{d=new Worker(URL.createObjectURL(new Blob([e])))}catch(t){return void 0!==typeof console&&"function"==typeof console.warn&&console.warn("🎊 Could not load worker",t),null}!function(t){function e(e,n){t.postMessage({options:e||{},callback:n})}t.init=function(e){var n=e.transferControlToOffscreen();t.postMessage({canvas:n},[n])},t.fire=function(n,a,i){if(m)return e(n,null),m;var o=Math.random().toString(36).slice(2);return m=l((function(a){function r(e){e.data.callback===o&&(delete g[o],t.removeEventListener("message",r),m=null,i(),a())}t.addEventListener("message",r),e(n,o),g[o]=r.bind(null,{data:{callback:o}})}))},t.reset=function(){for(var e in t.postMessage({reset:!0}),g)g[e](),delete g[e]}}(d)}return d}),p={particleCount:50,angle:90,spread:45,startVelocity:45,decay:.9,gravity:1,drift:0,ticks:200,x:.5,y:.5,shapes:["square","circle"],zIndex:100,colors:["#26ccff","#a25afd","#ff5e7e","#88ff5a","#fcff42","#ffa62d","#ff36ff"],disableForReducedMotion:!1,scalar:1};function y(t,e,n){return function(t,e){return e?e(t):t}(t&&null!=t[e]?t[e]:p[e],n)}function w(t){return t<0?0:Math.floor(t)}function x(t){return parseInt(t,16)}function C(t){return t.map(T)}function T(t){var e=String(t).replace(/[^0-9a-f]/gi,"");return e.length<6&&(e=e[0]+e[0]+e[1]+e[1]+e[2]+e[2]),{r:x(e.substring(0,2)),g:x(e.substring(2,4)),b:x(e.substring(4,6))}}function I(t){t.width=document.documentElement.clientWidth,t.height=document.documentElement.clientHeight}function k(t){var e=t.getBoundingClientRect();t.width=e.width,t.height=e.height}function E(t,e,n,o,r){var c,s,u=e.slice(),h=t.getContext("2d"),f=l((function(e){function l(){c=s=null,h.clearRect(0,0,o.width,o.height),r(),e()}c=v.frame((function e(){!a||o.width===i.width&&o.height===i.height||(o.width=t.width=i.width,o.height=t.height=i.height),o.width||o.height||(n(t),o.width=t.width,o.height=t.height),h.clearRect(0,0,o.width,o.height),u=u.filter((function(t){return function(t,e){e.x+=Math.cos(e.angle2D)*e.velocity+e.drift,e.y+=Math.sin(e.angle2D)*e.velocity+e.gravity,e.wobble+=e.wobbleSpeed,e.velocity*=e.decay,e.tiltAngle+=.1,e.tiltSin=Math.sin(e.tiltAngle),e.tiltCos=Math.cos(e.tiltAngle),e.random=Math.random()+2,e.wobbleX=e.x+10*e.scalar*Math.cos(e.wobble),e.wobbleY=e.y+10*e.scalar*Math.sin(e.wobble);var n=e.tick++/e.totalTicks,a=e.x+e.random*e.tiltCos,i=e.y+e.random*e.tiltSin,o=e.wobbleX+e.random*e.tiltCos,r=e.wobbleY+e.random*e.tiltSin;if(t.fillStyle="rgba("+e.color.r+", "+e.color.g+", "+e.color.b+", "+(1-n)+")",t.beginPath(),"circle"===e.shape)t.ellipse?t.ellipse(e.x,e.y,Math.abs(o-a)*e.ovalScalar,Math.abs(r-i)*e.ovalScalar,Math.PI/10*e.wobble,0,2*Math.PI):function(t,e,n,a,i,o,r,l,c){t.save(),t.translate(e,n),t.rotate(o),t.scale(a,i),t.arc(0,0,1,r,l,c),t.restore()}(t,e.x,e.y,Math.abs(o-a)*e.ovalScalar,Math.abs(r-i)*e.ovalScalar,Math.PI/10*e.wobble,0,2*Math.PI);else if("star"===e.shape)for(var l=Math.PI/2*3,c=4*e.scalar,s=8*e.scalar,u=e.x,h=e.y,f=5,d=Math.PI/f;f--;)u=e.x+Math.cos(l)*s,h=e.y+Math.sin(l)*s,t.lineTo(u,h),l+=d,u=e.x+Math.cos(l)*c,h=e.y+Math.sin(l)*c,t.lineTo(u,h),l+=d;else t.moveTo(Math.floor(e.x),Math.floor(e.y)),t.lineTo(Math.floor(e.wobbleX),Math.floor(i)),t.lineTo(Math.floor(o),Math.floor(r)),t.lineTo(Math.floor(a),Math.floor(e.wobbleY));return t.closePath(),t.fill(),e.tick<e.totalTicks}(h,t)})),u.length?c=v.frame(e):l()})),s=l}));return{addFettis:function(t){return u=u.concat(t),f},canvas:t,promise:f,reset:function(){c&&v.cancel(c),s&&s()}}}function S(t,n){var a,i=!t,r=!!y(n||{},"resize"),c=y(n,"disableForReducedMotion",Boolean),s=o&&!!y(n||{},"useWorker")?M():null,u=i?I:k,h=!(!t||!s)&&!!t.__confetti_initialized,f="function"==typeof matchMedia&&matchMedia("(prefers-reduced-motion)").matches;function d(e,n,i){for(var o,r,l,c,s,h=y(e,"particleCount",w),f=y(e,"angle",Number),d=y(e,"spread",Number),m=y(e,"startVelocity",Number),g=y(e,"decay",Number),b=y(e,"gravity",Number),v=y(e,"drift",Number),M=y(e,"colors",C),p=y(e,"ticks",Number),x=y(e,"shapes"),T=y(e,"scalar"),I=function(t){var e=y(t,"origin",Object);return e.x=y(e,"x",Number),e.y=y(e,"y",Number),e}(e),k=h,S=[],F=t.width*I.x,N=t.height*I.y;k--;)S.push((o={x:F,y:N,angle:f,spread:d,startVelocity:m,color:M[k%M.length],shape:x[(c=0,s=x.length,Math.floor(Math.random()*(s-c))+c)],ticks:p,decay:g,gravity:b,drift:v,scalar:T},r=void 0,l=void 0,r=o.angle*(Math.PI/180),l=o.spread*(Math.PI/180),{x:o.x,y:o.y,wobble:10*Math.random(),wobbleSpeed:Math.min(.11,.1*Math.random()+.05),velocity:.5*o.startVelocity+Math.random()*o.startVelocity,angle2D:-r+(.5*l-Math.random()*l),tiltAngle:(.5*Math.random()+.25)*Math.PI,color:o.color,shape:o.shape,tick:0,totalTicks:o.ticks,decay:o.decay,drift:o.drift,random:Math.random()+2,tiltSin:0,tiltCos:0,wobbleX:0,wobbleY:0,gravity:3*o.gravity,ovalScalar:.6,scalar:o.scalar}));return a?a.addFettis(S):(a=E(t,S,u,n,i)).promise}function m(n){var o=c||y(n,"disableForReducedMotion",Boolean),m=y(n,"zIndex",Number);if(o&&f)return l((function(t){t()}));i&&a?t=a.canvas:i&&!t&&(t=function(t){var e=document.createElement("canvas");return e.style.position="fixed",e.style.top="0px",e.style.left="0px",e.style.pointerEvents="none",e.style.zIndex=t,e}(m),document.body.appendChild(t)),r&&!h&&u(t);var g={width:t.width,height:t.height};function b(){if(s){var e={getBoundingClientRect:function(){if(!i)return t.getBoundingClientRect()}};return u(e),void s.postMessage({resize:{width:e.width,height:e.height}})}g.width=g.height=null}function v(){a=null,r&&e.removeEventListener("resize",b),i&&t&&(document.body.removeChild(t),t=null,h=!1)}return s&&!h&&s.init(t),h=!0,s&&(t.__confetti_initialized=!0),r&&e.addEventListener("resize",b,!1),s?s.fire(n,g,v):d(n,g,v)}return m.reset=function(){s&&s.reset(),a&&a.reset()},m}function F(){return b||(b=S(null,{useWorker:!0,resize:!0})),b}n.exports=function(){return F().apply(this,arguments)},n.exports.reset=function(){F().reset()},n.exports.create=S}(function(){return void 0!==t?t:"undefined"!=typeof self?self:this||{}}(),e,!1),t.confetti=e.exports}(window,{});
+    </script>
 
     <script>
         function createClovers() {
             const container = document.getElementById('bg-clovers');
             const count = 15;
             for (let i = 0; i < count; i++) {
-                const clover = document.createElement('i');
-                clover.className = 'fas fa-clover clover';
+                const clover = document.createElement('span');
+                clover.className = 'clover';
+                clover.textContent = '💗';
                 clover.style.left = Math.random() * 100 + 'vw';
                 clover.style.fontSize = (Math.random() * 20 + 20) + 'px';
                 clover.style.animationDelay = Math.random() * 15 + 's';
@@ -420,93 +705,156 @@
                     e.preventDefault();
                     return;
                 }
-                if (!isSpinning && !document.querySelector('.modal:not(.hidden)')) {
+                if (!isSpinning && !document.querySelector('.modal-overlay.open')) {
                     spin();
                     e.preventDefault();
                 }
             }
         });
 
-        function renderAdminList() {
-            document.querySelectorAll('.day-btn').forEach(btn => {
-                const isActive = btn.id === `day-${window.currentDay}`;
-                btn.style.backgroundColor = isActive ? 'var(--main-yellow)' : '#F3F4F6';
-                btn.style.color = isActive ? 'black' : '#999';
+        function getActiveItems() {
+            return window.items.filter(it => it.stock > 0 && it.weight > 0);
+        }
+
+        function renderDurationButtons() {
+            const list = document.getElementById('duration-btn-list');
+            list.innerHTML = SPIN_DURATION_OPTIONS.map(sec => `
+                <div class="duration-btn ${sec === window.spinDuration ? 'active' : ''}" onclick="setSpinDuration(${sec})">${sec}초</div>
+            `).join('');
+        }
+
+        function setSpinDuration(sec) {
+            window.spinDuration = sec;
+            persist();
+            renderDurationButtons();
+            showToast(`룰렛 회전 시간이 ${sec}초로 설정되었습니다.`);
+        }
+
+        function updateProbBadges() {
+            const activeItems = getActiveItems();
+            const totalWeight = activeItems.reduce((acc, it) => acc + it.weight, 0);
+            window.items.forEach((item, i) => {
+                const badge = document.getElementById(`prob-badge-${i}`);
+                if (!badge) return;
+                const isActive = activeItems.includes(item);
+                const prob = isActive && totalWeight > 0 ? (item.weight / totalWeight * 100) : 0;
+                const probText = prob >= 1 ? prob.toFixed(1) : prob.toFixed(2);
+                badge.textContent = isActive ? `${probText}%` : '재고없음';
+                badge.classList.toggle('inactive', !isActive);
             });
+        }
+
+        const trashIconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"></path><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
+
+        function renderAdminList() {
+            renderDurationButtons();
+
+            const activeItems = getActiveItems();
+            const totalWeight = activeItems.reduce((acc, it) => acc + it.weight, 0);
 
             const list = document.getElementById('admin-item-list');
-            list.innerHTML = window.items.map((item, i) => `
-                <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                    <div class="flex gap-3 mb-3">
-                        <input type="text" value="${item.name}" oninput="window.items[${i}].name=this.value" class="flex-1 bg-white border border-gray-200 p-2 rounded-lg font-bold outline-none text-sm" placeholder="경품명">
-                        <input type="number" value="${item.stock}" oninput="window.items[${i}].stock=parseInt(this.value)" class="w-16 bg-white border border-gray-200 p-2 rounded-lg font-bold text-center outline-none text-sm" placeholder="재고">
-                        <button onclick="removeItem(${i})" class="text-gray-300 hover:text-red-500"><i class="fas fa-trash"></i></button>
-                    </div>
-                    <div class="flex gap-1">
-                        ${['목','금','토','일'].map(d => `
-                            <button onclick="toggleItemDay(${i}, '${d}')" class="flex-1 py-1 rounded-md font-bold text-[10px] border transition-all ${item.days.includes(d) ? 'bg-black text-white border-black' : 'bg-white text-gray-300 border-gray-100'}">${d}</button>
-                        `).join('')}
+            list.innerHTML = window.items.map((item, i) => {
+                const isActive = activeItems.includes(item);
+                const prob = isActive && totalWeight > 0 ? (item.weight / totalWeight * 100) : 0;
+                const probText = prob >= 1 ? prob.toFixed(1) : prob.toFixed(2);
+                const probLabel = isActive ? `${probText}%` : '재고없음';
+                return `
+                <div class="admin-item">
+                    <div class="admin-item-row">
+                        <input type="text" value="${item.name}" oninput="window.items[${i}].name=this.value" class="admin-item-name-input" placeholder="경품명">
+                        <div class="admin-item-field">
+                            <span class="admin-item-field-label">재고</span>
+                            <input type="number" value="${item.stock}" oninput="window.items[${i}].stock=parseInt(this.value)||0; updateProbBadges();" class="admin-item-field-input">
+                        </div>
+                        <div class="admin-item-field">
+                            <span class="admin-item-field-label">확률가중치</span>
+                            <input type="number" value="${item.weight}" oninput="window.items[${i}].weight=parseInt(this.value)||0; updateProbBadges();" class="admin-item-field-input">
+                        </div>
+                        <span id="prob-badge-${i}" class="prob-badge ${isActive ? '' : 'inactive'}">${probLabel}</span>
+                        <button type="button" onclick="removeItem(${i})" class="admin-item-delete-btn" aria-label="삭제">${trashIconSvg}</button>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
         async function spin() {
             if (isSpinning) return;
-            const activeItems = window.items.filter(it => it.stock > 0 && it.days.includes(window.currentDay));
-            if (activeItems.length === 0) { 
-                alert(`[${window.currentDay}요일] 준비된 경품이 모두 소진되었습니다.`); 
-                return; 
+            const activeItems = getActiveItems();
+            if (activeItems.length === 0) {
+                showToast('준비된 경품이 모두 소진되었습니다.');
+                return;
             }
             isSpinning = true;
-            document.getElementById('spin-btn').disabled = true; 
-            
-            const totalStock = activeItems.reduce((acc, it) => acc + it.stock, 0);
-            let rand = Math.floor(Math.random() * totalStock);
+            document.getElementById('spin-btn').disabled = true;
+
+            const totalWeight = activeItems.reduce((acc, it) => acc + it.weight, 0);
+            let rand = Math.random() * totalWeight;
             let winner = activeItems[0];
             let acc = 0;
             for (let it of activeItems) {
-                acc += it.stock;
+                acc += it.weight;
                 if (rand < acc) { winner = it; break; }
             }
 
-            const extraSpins = 12; 
-            const randomStopAngle = Math.floor(Math.random() * 360); 
+            const extraSpins = 12;
+            const randomStopAngle = Math.floor(Math.random() * 360);
             currentRotation += (extraSpins * 360) + randomStopAngle;
-            
+
+            const durationSec = window.spinDuration || 0.5;
             const wheelEl = document.getElementById('wheel');
-            wheelEl.style.transition = 'transform 2.5s cubic-bezier(0.15, 0, 0.05, 1)';
+            wheelEl.style.transition = `transform ${durationSec}s cubic-bezier(0.15, 0, 0.05, 1)`;
             wheelEl.style.transform = `rotate(${currentRotation}deg)`;
-            
-            setTimeout(async () => {
-                confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ['#FFB800', '#4ADE80', '#FFFFFF'] });
+
+            setTimeout(() => {
                 document.getElementById('win-item-name').innerText = winner.name;
                 document.getElementById('result-overlay').classList.add('active');
-                
-                const updatedItems = window.items.map(it => it.id === winner.id ? {...it, stock: it.stock - 1} : it);
-                if (window.isFirebaseReady) {
-                    const ref = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
-                    await window.fsUpdateDoc(ref, { items: updatedItems, currentDay: window.currentDay });
-                } else {
-                    window.items = updatedItems;
-                    renderAdminList();
-                }
-            }, 2600); 
+                fireConfetti();
+
+                window.items = window.items.map(it => it.id === winner.id ? { ...it, stock: it.stock - 1 } : it);
+                persist();
+                renderAdminList();
+            }, durationSec * 1000 + 100);
         }
 
-        function openAdmin() { document.getElementById('admin-login-modal').classList.remove('hidden'); document.getElementById('admin-login-modal').classList.add('flex'); }
+        function openAdmin() { document.getElementById('admin-login-modal').classList.add('open'); }
         function checkAdminPass() {
             if (document.getElementById('admin-pass').value === '8887') {
                 closeModal('admin-login-modal');
                 document.getElementById('admin-pass').value = '';
-                document.getElementById('admin-settings-modal').classList.remove('hidden');
-                document.getElementById('admin-settings-modal').classList.add('flex');
+                document.getElementById('admin-settings-modal').classList.add('open');
                 renderAdminList();
-            } else { alert('PIN 코드가 틀립니다.'); }
+            } else { showToast('PIN 코드가 틀립니다.'); }
         }
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex'); }
-        
+        function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+        function showToast(msg) {
+            let el = document.getElementById('toast-msg');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'toast-msg';
+                el.className = 'toast-msg';
+                document.body.appendChild(el);
+            }
+            el.textContent = msg;
+            el.style.opacity = '1';
+            clearTimeout(el._toastTimer);
+            el._toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+        }
+
+        let confettiTimers = [];
+        function fireConfetti() {
+            confettiTimers.forEach(t => clearTimeout(t));
+            confettiTimers = [];
+            const colors = ['#DD3E78', '#FF9EC4', '#FFFFFF'];
+            confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors, zIndex: 10500 });
+            confettiTimers.push(setTimeout(() => confetti({ particleCount: 80, angle: 60, spread: 60, origin: { x: 0, y: 0.7 }, colors, zIndex: 10500 }), 300));
+            confettiTimers.push(setTimeout(() => confetti({ particleCount: 80, angle: 120, spread: 60, origin: { x: 1, y: 0.7 }, colors, zIndex: 10500 }), 500));
+        }
+
         function closeResult() {
+            confettiTimers.forEach(t => clearTimeout(t));
+            confettiTimers = [];
             document.getElementById('result-overlay').classList.remove('active');
             currentRotation %= 360;
             const wheelEl = document.getElementById('wheel');
@@ -515,15 +863,9 @@
             document.getElementById('spin-btn').disabled = false;
             isSpinning = false;
         }
-        
-        function changeGlobalDay(d) { window.currentDay = d; renderAdminList(); }
-        function toggleItemDay(idx, d) {
-            const days = window.items[idx].days;
-            window.items[idx].days = days.includes(d) ? days.filter(x => x !== d) : [...days, d];
-            renderAdminList();
-        }
+
         function addItem() {
-            window.items.push({ id: Date.now(), name: "새 경품", stock: 10, days: ["목","금","토","일"] });
+            window.items.push({ id: Date.now(), name: "새 경품", stock: 10, weight: 10 });
             renderAdminList();
         }
         function removeItem(i) {
@@ -532,14 +874,13 @@
                 renderAdminList();
             }
         }
-        async function saveData() {
-            if (window.isFirebaseReady) {
-                const ref = window.fsDoc(window.db, 'artifacts', window.appId, 'public', 'data');
-                await window.fsSetDoc(ref, { items: window.items, currentDay: window.currentDay });
-                alert('저장되었습니다.');
-            } else { alert('로컬에 저장되었습니다.'); }
+        function saveData() {
+            persist();
+            showToast('저장되었습니다. (이 PC의 브라우저에 보관됩니다)');
             closeModal('admin-settings-modal');
         }
+
+        window.onload = () => { renderAdminList(); };
     </script>
 </body>
 </html>
